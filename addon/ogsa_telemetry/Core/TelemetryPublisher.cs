@@ -64,6 +64,11 @@ public sealed class TelemetryPublisher : IDisposable
     string _typeLabel = "";
     bool _locked;
 
+    // discovery environment (schema: "may be re-sent on change") — defaults
+    // match the original hardcoded discovery values
+    float _envAirDensity = 1.225f, _envTemperature = 20f, _envPressure = 1.01325f, _envGravity = 9.81f;
+    CapnpGen.ContactMedium _envMedium = CapnpGen.ContactMedium.asphalt;
+
     Func<Vector3>? _getPosition;
     Func<(Vector3 specificForce, Vector3 angularVelocityRadS)>? _getBodyDynamics;
     Func<Quaternion>? _getOrientation;
@@ -118,6 +123,32 @@ public sealed class TelemetryPublisher : IDisposable
         _typeLabel = typeLabel;
         if (_discoveryFrame is not null)
             _discoveryFrame.Objects[0].TypeLabel = typeLabel;
+        _lastDiscovery = double.NegativeInfinity; // re-send at the next tick
+    }
+
+    /// <summary>Declares or updates the ambient environment carried in
+    /// discovery. Callable before the first tick and afterwards — the
+    /// schema allows the environment to be re-sent on change ("e.g.
+    /// entering water"), so a changed environment re-sends discovery at
+    /// the next tick, like <see cref="SetObjectTypeLabel"/>. Senders with
+    /// per-level conditions should call it on level load: a space level
+    /// would set gravity 0 and <c>ContactMedium.vacuum</c>. All values are
+    /// taken as given — no defaults are guessed on a partial update.</summary>
+    public void SetEnvironment(float gravity, float airDensity, float temperature,
+                               float pressure, CapnpGen.ContactMedium medium)
+    {
+        if (_envGravity == gravity && _envAirDensity == airDensity &&
+            _envTemperature == temperature && _envPressure == pressure &&
+            _envMedium == medium) return;
+        _envGravity = gravity; _envAirDensity = airDensity;
+        _envTemperature = temperature; _envPressure = pressure;
+        _envMedium = medium;
+        if (_discoveryFrame is not null && _discoveryFrame.Environment is { } env)
+        {
+            env.Gravity = gravity; env.AirDensity = airDensity;
+            env.Temperature = temperature; env.Pressure = pressure;
+            env.Medium = medium;
+        }
         _lastDiscovery = double.NegativeInfinity; // re-send at the next tick
     }
 
@@ -351,8 +382,8 @@ public sealed class TelemetryPublisher : IDisposable
         SessionStartUnixUs = _sessionStartTicks / 10, // .NET ticks (100 ns) → µs
         Environment = new CapnpGen.Environment
         {
-            AirDensity = 1.225f, Temperature = 20f, Pressure = 1.01325f,
-            Gravity = 9.81f, Medium = CapnpGen.ContactMedium.asphalt,
+            AirDensity = _envAirDensity, Temperature = _envTemperature,
+            Pressure = _envPressure, Gravity = _envGravity, Medium = _envMedium,
         },
         Objects = new List<CapnpGen.ObjectDescriptor>
         {

@@ -282,19 +282,20 @@ namespace CapnpGen
     [System.CodeDom.Compiler.GeneratedCode("capnpc-csharp", "1.3.0.0"), TypeId(0x8630a811f6bd1e18UL)]
     public enum ObjectType : ushort
     {
+        other,
         vehicle,
         aircraft,
         watercraft,
         spacecraft,
         humanoid,
         camera,
-        creature,
-        other
+        creature
     }
 
     [System.CodeDom.Compiler.GeneratedCode("capnpc-csharp", "1.3.0.0"), TypeId(0xc4d8aa04fa065ed7UL)]
     public enum ContactMedium : ushort
     {
+        other,
         air,
         asphalt,
         dirt,
@@ -304,7 +305,7 @@ namespace CapnpGen
         water,
         snow,
         ice,
-        other
+        vacuum
     }
 
     [System.CodeDom.Compiler.GeneratedCode("capnpc-csharp", "1.3.0.0"), TypeId(0x97648f18e2281faeUL)]

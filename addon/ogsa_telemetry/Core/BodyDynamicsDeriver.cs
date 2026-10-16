@@ -41,7 +41,18 @@ namespace Ogsa.Telemetry
 /// position deltas. Acceleration is low-pass filtered (τ = 0.1 s) to tame
 /// sampling jitter; angular velocity is NOT filtered (onset cues need its
 /// edges). Teleports (> 2.5 m per sample) reset the estimator instead of
-/// producing a spike; the first sample after a reset yields the exact
+/// Teleports are detected as moves the best available velocity
+/// estimate cannot explain (engine-measured velocity when supplied,
+/// else the previously derived one) — NOT by a fixed per-sample
+/// displacement cap, which conflated "teleport" with "fast mover":
+/// flight and space sims routinely exceed 2.5 m per 20 ms sample
+/// (125 m/s) in perfectly normal flight, which reset the estimator
+/// every tick. Without a velocity measurement a single inconsistent
+/// sample is acceleration onset (or the first sample after a reset),
+/// so only a sustained inconsistency is treated as a teleport.
+/// Acceleration is low-pass filtered (τ = 0.1 s) to tame
+/// sampling jitter; angular velocity is NOT filtered (onset cues need its
+/// edges). The first sample after a reset yields the exact
 /// static value: gravity reaction rotated into the body frame, zero rates.
 /// </summary>
 public sealed class BodyDynamicsDeriver
@@ -52,7 +63,10 @@ public sealed class BodyDynamicsDeriver
     /// <summary>Acceleration low-pass time constant, seconds.</summary>
     public const double AccelFilterTau = 0.1;
 
-    /// <summary>Largest plausible per-sample travel before the move is treated as a teleport, metres.</summary>
+    /// <summary>Base teleport-inconsistency tolerance, metres: the part of
+    /// a per-sample move the velocity estimate cannot explain before it is
+    /// a candidate teleport (a proportional slack on top covers velocity
+    /// change mid-sample). See the class doc for the full rule.</summary>
     public const float TeleportThresholdMetres = 2.5f;
 
     public Vector3 SpecificForce { get; private set; }
@@ -64,6 +78,8 @@ public sealed class BodyDynamicsDeriver
     Vector3 _filteredAccel;
     double _prevTime = double.NaN;
     bool _hasHistory;
+    bool _pendingTeleport; // no-velocity path: one strike is accel onset, two is a teleport
+
 
     /// <summary>Feeds one pose sample (standard frame: metres, unit
     /// quaternion, world space; dt in seconds). Call every host tick, not
@@ -85,15 +101,41 @@ public sealed class BodyDynamicsDeriver
             return;
         }
 
-        if ((position - _prevPosition).Length() > TeleportThresholdMetres)
+        Vector3 displacement = position - _prevPosition;
+        Vector3 velocity;
+        if (hasVelocity)
         {
-            Reset(position, orientation, time);
-            return;
+            // engine-measured velocity is authoritative: a move it cannot
+            // explain (respawn, level change, floating-origin shift) is a
+            // teleport, however fast the ship legitimately flies
+            velocity = engineVelocity;
+            float expected = (float)dt * engineVelocity.Length();
+            float inconsistency = (displacement - engineVelocity * (float)dt).Length();
+            if (inconsistency > TeleportThresholdMetres + 0.5f * expected)
+            {
+                Reset(position, orientation, time);
+                return;
+            }
         }
-
-        Vector3 velocity = hasVelocity
-            ? engineVelocity
-            : (position - _prevPosition) / (float)dt;
+        else
+        {
+            velocity = displacement / (float)dt;
+            Vector3 expected = _prevVelocity * (float)dt;
+            float inconsistency = (displacement - expected).Length();
+            if (inconsistency > TeleportThresholdMetres + 0.5f * expected.Length())
+            {
+                // without a velocity measurement one inconsistent sample is
+                // acceleration onset (or the first sample after a reset); a
+                // sustained one is a teleport
+                if (_pendingTeleport)
+                {
+                    Reset(position, orientation, time);
+                    return;
+                }
+                _pendingTeleport = true;
+            }
+            else _pendingTeleport = false;
+        }
 
         Vector3 accel = (velocity - _prevVelocity) / (float)dt;
         // one-pole low-pass: y += (x − y)·dt/τ, stable for any dt
@@ -122,6 +164,7 @@ public sealed class BodyDynamicsDeriver
         _filteredAccel = default;
         _prevTime = time;
         _hasHistory = true;
+        _pendingTeleport = false;
     }
 
     /// <summary>Body-frame angular velocity (rad/s, C-4 component sense:
@@ -147,8 +190,19 @@ public sealed class BodyDynamicsDeriver
         if (vecLen < 1e-8f || dt <= 0) return default;
         float angle = 2f * (float)System.Math.Atan2(vecLen, dq.W); // |θ| ∈ [0, π]
         Vector3 stored = vec / vecLen * (float)(angle / dt);
-        return new Vector3(-stored.X, stored.Y, -stored.Z); // C-4 sense
+        return StoredToC4Rates(stored);
     }
+
+    /// <summary>Maps a body-frame angular velocity from the engine's
+    /// stored-Hamilton component sense to C-4 (−x, +y, −z) — see the class
+    /// doc for why that makes native rates equal the receiver's
+    /// Euler-differentiated rates. For senders whose engine measures
+    /// angular velocity natively (Unity/Unreal rigidbody world rate):
+    /// rotate the reading into the body frame with
+    /// <see cref="RotateByInverse"/> first, then apply this.</summary>
+    public static Vector3 StoredToC4Rates(Vector3 storedBodyAngularVelocity)
+        => new(-storedBodyAngularVelocity.X, storedBodyAngularVelocity.Y,
+               -storedBodyAngularVelocity.Z);
 
     /// <summary>Rotates a world-frame vector into the body frame:
     /// v_body = q⁻¹ · v_world for the actor-style orientation q
