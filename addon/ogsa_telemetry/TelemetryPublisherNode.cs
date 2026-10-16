@@ -37,9 +37,23 @@ public sealed partial class TelemetryPublisherNode : Node3D
     [ExportGroup("Auto-bind")]
     [Export] public RigidBody3D? AutoBindBody;
 
+    /// <summary>Emit the bodyDynamics variant (specific force + angular
+    /// rates — the motion-cueing inputs) derived per tick from the bound
+    /// body's pose and its engine-measured LinearVelocity, via the core's
+    /// BodyDynamicsDeriver. Accelerometer-style convention: heave reads
+    /// +9.80665 at rest.</summary>
+    [Export] public bool SendBodyDynamics = true;
+
     Core.TelemetryPublisher? _publisher;
     Core.TelemetrySender? _sender;
     bool _tornDown;
+    readonly Core.BodyDynamicsDeriver _deriver = new();
+
+    /// <summary>The pose→dynamics deriver behind SendBodyDynamics — for
+    /// manual binders: sample it per tick in Godot world terms via
+    /// SampleBodyDynamics, then Publisher.BindBodyDynamics(() =>
+    /// (deriver.SpecificForce, deriver.AngularVelocity)).</summary>
+    public Core.BodyDynamicsDeriver BodyDeriver => _deriver;
 
     /// <summary>The engine-agnostic publisher, constructed on first use
     /// from the exported configuration.</summary>
@@ -80,6 +94,9 @@ public sealed partial class TelemetryPublisherNode : Node3D
             Publisher.BindPose(
                 () => ToStandard(body.GlobalPosition),
                 () => ToStandard(body.GlobalTransform.Basis.GetRotationQuaternion()));
+            if (SendBodyDynamics)
+                Publisher.BindBodyDynamics(
+                    () => (_deriver.SpecificForce, _deriver.AngularVelocity));
         }
     }
 
@@ -88,6 +105,31 @@ public sealed partial class TelemetryPublisherNode : Node3D
         var pub = _publisher;
         if (pub == null || Engine.IsEditorHint())
             return;
+        // derivation runs every tick with a pose (not just at publish
+        // cadence): engine-measured velocity, quaternion-delta rates
+        if (SendBodyDynamics && AutoBindBody != null)
+        {
+            if (GodotObject.IsInstanceValid(AutoBindBody))
+            {
+                var body = AutoBindBody;
+                var t = Time.GetTicksMsec() / 1000.0;
+                // Godot RH −Z-fwd → OGSA LH +Z-fwd: vectors negate Z,
+                // quaternions (x, y, −z, −w) — see the class doc
+                var pos = new System.Numerics.Vector3(
+                    body.GlobalPosition.X, body.GlobalPosition.Y, -body.GlobalPosition.Z);
+                var basisQ = body.GlobalTransform.Basis.GetRotationQuaternion();
+                var quat = new System.Numerics.Quaternion(
+                    basisQ.X, basisQ.Y, -basisQ.Z, -basisQ.W);
+                var lv = body.LinearVelocity;
+                var vel = new System.Numerics.Vector3(lv.X, lv.Y, -lv.Z);
+                _deriver.Sample(t, pos, quat, hasVelocity: true, engineVelocity: vel);
+            }
+            else
+            {
+                // body freed (scene change): next pose starts fresh
+                _deriver.Reset(default, System.Numerics.Quaternion.Identity, 0);
+            }
+        }
         pub.Tick(Time.GetTicksMsec() / 1000.0);
     }
 

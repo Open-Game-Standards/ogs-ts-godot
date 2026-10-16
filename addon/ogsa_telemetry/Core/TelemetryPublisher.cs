@@ -65,6 +65,7 @@ public sealed class TelemetryPublisher : IDisposable
     bool _locked;
 
     Func<Vector3>? _getPosition;
+    Func<(Vector3 specificForce, Vector3 angularVelocityRadS)>? _getBodyDynamics;
     Func<Quaternion>? _getOrientation;
 
     readonly Queue<(CapnpGen.Event ev, double at)> _recentEvents = new();
@@ -197,6 +198,17 @@ public sealed class TelemetryPublisher : IDisposable
         _getPosition = position; _getOrientation = orientation;
     }
 
+    /// <summary>Binds body-frame dynamics: specific force (m/s²,
+    /// accelerometer-style, gravity reaction included) and angular
+    /// velocity (rad/s, C-4 axes: x +nose-up pitch, y +nose-right yaw,
+    /// z +roll right-down). Senders that natively measure these should
+    /// bind them: receivers consume native angular rates without
+    /// euler-artifacts, and motion-cueing tilt coordination feeds on
+    /// specific force directly.</summary>
+    public void BindBodyDynamics(
+        Func<(Vector3 specificForce, Vector3 angularVelocityRadS)> get)
+        => _getBodyDynamics = get;
+
     /// <summary>Binds a numeric channel. The getter returns values in
     /// <paramref name="sourceUnit"/> (what the game natively measures); the
     /// factor to the channel's target unit is precomputed here and applied
@@ -321,6 +333,7 @@ public sealed class TelemetryPublisher : IDisposable
         _bindings.Clear();
         _recentEvents.Clear();
         _getPosition = null;
+        _getBodyDynamics = null;
         _getOrientation = null;
         _discoveryFrame = null;
         _motionFrame = null;
@@ -392,6 +405,22 @@ public sealed class TelemetryPublisher : IDisposable
             obj.Orientation.Z = q.Z; obj.Orientation.W = q.W;
         }
         else obj.Orientation = null!;
+        if (_getBodyDynamics is not null)
+        {
+            var (sf, av) = _getBodyDynamics();
+            if (obj.BodyDynamics is null) obj.BodyDynamics = new CapnpGen.BodyDynamics();
+            obj.BodyDynamics.SpecificForce ??= new CapnpGen.Vector3();
+            obj.BodyDynamics.AngularVelocity ??= new CapnpGen.Vector3();
+            obj.BodyDynamics.SpecificForce.X = sf.X;
+            obj.BodyDynamics.SpecificForce.Y = sf.Y;
+            obj.BodyDynamics.SpecificForce.Z = sf.Z;
+            obj.BodyDynamics.AngularVelocity.X = av.X;
+            obj.BodyDynamics.AngularVelocity.Y = av.Y;
+            obj.BodyDynamics.AngularVelocity.Z = av.Z;
+            obj.which = CapnpGen.MotionObject.WHICH.BodyDynamics;
+        }
+        else if (obj.which == CapnpGen.MotionObject.WHICH.BodyDynamics)
+            obj.which = CapnpGen.MotionObject.WHICH.NoDynamics;
 
         // v1 streams all declared channels each tick; the schema permits
         // sending only changed values once senders have hundreds of channels.
