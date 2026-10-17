@@ -6,3 +6,7 @@
 
 # the testproject csproj is source (committed on purpose); other csproj are generated
 !testproject/ogsa-ts-godot-testproject.csproj
+
+# local Godot editor download (CI caches it at the same path)
+godot-editor/
+godot.zip

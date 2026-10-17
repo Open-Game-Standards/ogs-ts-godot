@@ -229,6 +229,26 @@ public sealed partial class ConformanceCheck : Node
             && m.Objects[1].Position.X == -1f
             && m.Objects[1].Position.Y == 0.5f
             && m.Objects[1].Position.Z == 2.5f,
+        // corpus v2: pose + the bodyDynamics union variant (accelerometer-
+        // style specific force, C-4 angular velocity)
+        "motion-bodydynamics" =>
+            m.Timestamp == 4.5
+            && m.Objects.Count == 1
+            && m.Objects[0].Name == "obj"
+            && m.Objects[0].which == CapnpGen.MotionObject.WHICH.BodyDynamics
+            && m.Objects[0].Position.X == 0.5f
+            && m.Objects[0].Position.Y == 1.25f
+            && m.Objects[0].Position.Z == -2.5f
+            && m.Objects[0].Orientation.X == 0f
+            && m.Objects[0].Orientation.Y == 0.5f
+            && m.Objects[0].Orientation.Z == 0f
+            && m.Objects[0].Orientation.W == 0.875f
+            && m.Objects[0].BodyDynamics.SpecificForce.X == 0.25f
+            && m.Objects[0].BodyDynamics.SpecificForce.Y == 9.5f
+            && m.Objects[0].BodyDynamics.SpecificForce.Z == -1.5f
+            && m.Objects[0].BodyDynamics.AngularVelocity.X == -0.125f
+            && m.Objects[0].BodyDynamics.AngularVelocity.Y == 0.375f
+            && m.Objects[0].BodyDynamics.AngularVelocity.Z == 0.75f,
         _ => false,
     };
 
