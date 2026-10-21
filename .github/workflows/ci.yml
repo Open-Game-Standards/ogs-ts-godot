@@ -2,8 +2,10 @@ name: ci
 # Verifies the addon end to end via the in-repo testproject: sync the
 # addon in, build the C#, run the conformance scene headless — exit 0
 # means 13/13 (5 frame conversion + manifest + 7 corpus checks).
-# windows runner: sync-addon.ps1 uses robocopy; corpus found via the
-# standard repo checked out as a sibling (ancestor walk).
+# Runs on Windows, Linux, and macOS: sync-addon.ps1 is pure PowerShell
+# (no robocopy), run via pwsh on every OS. Corpus found via the standard
+# repo checked out as a sibling (ancestor walk).
+
 on: [push, pull_request]
 
 env:
@@ -12,7 +14,19 @@ env:
 
 jobs:
   conformance:
-    runs-on: windows-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        # godot_asset matches the Godot mono release asset name suffix
+        # (Godot_v<version>_mono_<godot_asset>.zip).
+        include:
+          - os: windows-latest
+            godot_asset: win64
+          - os: ubuntu-latest
+            godot_asset: linux_x86_64
+          - os: macos-latest
+            godot_asset: macos.universal
+    runs-on: ${{ matrix.os }}
     steps:
       - uses: actions/checkout@v7
       - uses: actions/checkout@v7
@@ -28,22 +42,53 @@ jobs:
         uses: actions/cache@v6
         with:
           path: godot-editor
-          key: godot-${{ env.GODOT_VERSION }}-mono-win64
+          key: godot-${{ env.GODOT_VERSION }}-mono-${{ matrix.godot_asset }}
 
       - name: Download Godot (mono)
         if: steps.godot-cache.outputs.cache-hit != 'true'
+        shell: pwsh
         run: |
-          curl.exe -L -o godot.zip "https://github.com/godotengine/godot/releases/download/${{ env.GODOT_VERSION }}/Godot_v${{ env.GODOT_VERSION }}_mono_win64.zip"
+          $url = "https://github.com/godotengine/godot/releases/download/${{ env.GODOT_VERSION }}/Godot_v${{ env.GODOT_VERSION }}_mono_${{ matrix.godot_asset }}.zip"
+          Invoke-WebRequest -Uri $url -OutFile godot.zip
           Expand-Archive godot.zip -DestinationPath godot-editor
 
       - name: Sync addon into testproject
+        shell: pwsh
         run: ./sync-addon.ps1 -Project ./testproject
 
       - name: Build C# solution
         run: dotnet build testproject/ogsa-ts-godot-testproject.csproj --nologo
 
-      - name: Run conformance scene headless
+      # Windows mono builds ship a *_console.exe (stdout-attached) sibling
+      # to the windowed exe; Linux/macOS builds are console-native, so the
+      # normal binary is used directly — it just needs the executable bit,
+      # which zip extraction on non-Windows platforms doesn't preserve.
+      - name: Run conformance scene headless (Windows)
+        if: runner.os == 'Windows'
+        shell: pwsh
         run: |
           $exe = (Get-ChildItem godot-editor -Filter *_console.exe -Recurse | Select-Object -First 1).FullName
+          & $exe --headless --path testproject
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+
+      - name: Run conformance scene headless (Linux)
+        if: runner.os == 'Linux'
+        shell: pwsh
+        run: |
+          $exe = (Get-ChildItem godot-editor -Recurse -File |
+            Where-Object { $_.Name -like 'Godot_*_mono_linux*' -and $_.FullName -notlike '*GodotSharp*' } |
+            Select-Object -First 1).FullName
+          & chmod +x $exe
+          & $exe --headless --path testproject
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+
+      - name: Run conformance scene headless (macOS)
+        if: runner.os == 'macOS'
+        shell: pwsh
+        run: |
+          $exe = (Get-ChildItem godot-editor -Recurse -File |
+            Where-Object { $_.FullName -like '*.app*Contents*MacOS*' } |
+            Select-Object -First 1).FullName
+          & chmod +x $exe
           & $exe --headless --path testproject
           if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
