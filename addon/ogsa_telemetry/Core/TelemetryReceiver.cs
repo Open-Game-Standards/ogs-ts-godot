@@ -32,13 +32,46 @@ public sealed class TelemetryReceiver : IDisposable
     public long ForeignSkipped { get; private set; }
     public long DecodeErrors { get; private set; }
 
-    public TelemetryReceiver(string group = "239.255.17.17", int port = 40123)
+    /// <param name="localInterface">NIC to join the group on, as that
+    /// interface's local IPv4 address. Left null, the OS default route
+    /// picks the interface — on a multi-homed host that can silently join
+    /// on an interface with no path to the LAN. Pass the interface you
+    /// want when the host has more than one.</param>
+    public TelemetryReceiver(string group = "239.255.17.17", int port = 40123,
+                     IPAddress? localInterface = null)
     {
         _socket = new Socket(AddressFamily.InterNetwork, SocketType.Dgram, ProtocolType.Udp);
         _socket.SetSocketOption(SocketOptionLevel.Socket, SocketOptionName.ReuseAddress, true);
+        TryEnableReusePort(_socket);
         _socket.Bind(new IPEndPoint(IPAddress.Any, port));
         _socket.SetSocketOption(SocketOptionLevel.IP, SocketOptionName.AddMembership,
-            new MulticastOption(IPAddress.Parse(group)));
+            localInterface is null
+                ? new MulticastOption(IPAddress.Parse(group))
+                : new MulticastOption(IPAddress.Parse(group), localInterface));
+    }
+
+    // SO_REUSEADDR alone lets a second bind to the same port succeed on
+    // Windows and Linux, but on macOS/BSD a second multicast listener
+    // still won't receive traffic without SO_REUSEPORT too (there's no
+    // SocketOptionName for it, so it's a raw setsockopt call). Best-effort:
+    // a lone receiver works fine without it, so failures are swallowed.
+    // Skipped on netstandard (no SetRawSocketOption there) — Unity/Godot
+    // vendor this file but only ever run a single in-process receiver.
+    static void TryEnableReusePort(Socket socket)
+    {
+#if NET6_0_OR_GREATER
+        try
+        {
+            byte[] enable = { 1, 0, 0, 0 };
+            if (OperatingSystem.IsLinux())
+                socket.SetRawSocketOption(1 /* SOL_SOCKET */, 15 /* SO_REUSEPORT */, enable);
+            else if (OperatingSystem.IsMacOS())
+                socket.SetRawSocketOption(0xffff /* SOL_SOCKET */, 0x0200 /* SO_REUSEPORT */, enable);
+        }
+        catch (SocketException)
+        {
+        }
+#endif
     }
 
     public void Start() => _loop ??= Task.Run(() => ReceiveLoop(_cts.Token));
