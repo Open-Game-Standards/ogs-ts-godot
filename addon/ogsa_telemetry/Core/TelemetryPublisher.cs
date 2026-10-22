@@ -65,8 +65,8 @@ public sealed class TelemetryPublisher : IDisposable
     bool _locked;
 
     // discovery environment (schema: "may be re-sent on change") — defaults
-    // match the original hardcoded discovery values
-    float _envAirDensity = 1.225f, _envTemperature = 20f, _envPressure = 1.01325f, _envGravity = 9.81f;
+    // are the standard atmosphere in the schema's SI units (pressure in Pa)
+    float _envAirDensity = 1.225f, _envTemperature = 20f, _envPressure = 101325f, _envGravity = 9.81f;
     Schema.ContactMedium _envMedium = Schema.ContactMedium.Asphalt;
 
     Func<Vector3>? _getPosition;
