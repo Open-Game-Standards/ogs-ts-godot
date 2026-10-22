@@ -40,8 +40,7 @@ namespace Ogsa.Telemetry
 /// (Unreal GetVelocity, Unity Rigidbody); otherwise it is derived from
 /// position deltas. Acceleration is low-pass filtered (τ = 0.1 s) to tame
 /// sampling jitter; angular velocity is NOT filtered (onset cues need its
-/// edges). Teleports (> 2.5 m per sample) reset the estimator instead of
-/// Teleports are detected as moves the best available velocity
+/// edges). Teleports are detected as moves the best available velocity
 /// estimate cannot explain (engine-measured velocity when supplied,
 /// else the previously derived one) — NOT by a fixed per-sample
 /// displacement cap, which conflated "teleport" with "fast mover":
@@ -49,11 +48,9 @@ namespace Ogsa.Telemetry
 /// (125 m/s) in perfectly normal flight, which reset the estimator
 /// every tick. Without a velocity measurement a single inconsistent
 /// sample is acceleration onset (or the first sample after a reset),
-/// so only a sustained inconsistency is treated as a teleport.
-/// Acceleration is low-pass filtered (τ = 0.1 s) to tame
-/// sampling jitter; angular velocity is NOT filtered (onset cues need its
-/// edges). The first sample after a reset yields the exact
-/// static value: gravity reaction rotated into the body frame, zero rates.
+/// so only a sustained inconsistency is treated as a teleport. The
+/// first sample after a reset yields the exact static value: gravity
+/// reaction rotated into the body frame, zero rates.
 /// </summary>
 public sealed class BodyDynamicsDeriver
 {
