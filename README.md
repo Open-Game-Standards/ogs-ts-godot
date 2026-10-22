@@ -13,6 +13,12 @@ conformance checker against the standard's golden corpus. Validated
 end-to-end against the reference receiver (`ogsa-ts-dotnet`:
 `dotnet run --project src/TelemetryReceive`).
 
+**Built with AI assistance.** Significant portions of this addon
+(including the vendored core, the frame-conversion math, and the
+conformance checker) were written with AI coding assistance under
+human direction and review. Review and test before relying
+on it, especially around networking and the frame-conversion math.
+
 ## Install (Godot 4 .NET)
 
 1. Copy `addon/ogsa_telemetry/` into your project as `addons/ogsa_telemetry/`.
