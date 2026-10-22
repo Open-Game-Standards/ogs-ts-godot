@@ -113,15 +113,9 @@ public sealed partial class TelemetryPublisherNode : Node3D
             {
                 var body = AutoBindBody;
                 var t = Time.GetTicksMsec() / 1000.0;
-                // Godot RH −Z-fwd → OGSA LH +Z-fwd: vectors negate Z,
-                // quaternions (x, y, −z, −w) — see the class doc
-                var pos = new System.Numerics.Vector3(
-                    body.GlobalPosition.X, body.GlobalPosition.Y, -body.GlobalPosition.Z);
-                var basisQ = body.GlobalTransform.Basis.GetRotationQuaternion();
-                var quat = new System.Numerics.Quaternion(
-                    basisQ.X, basisQ.Y, -basisQ.Z, -basisQ.W);
-                var lv = body.LinearVelocity;
-                var vel = new System.Numerics.Vector3(lv.X, lv.Y, -lv.Z);
+                var pos = ToStandard(body.GlobalPosition);
+                var quat = ToStandard(body.GlobalTransform.Basis.GetRotationQuaternion());
+                var vel = ToStandard(body.LinearVelocity);
                 _deriver.Sample(t, pos, quat, hasVelocity: true, engineVelocity: vel);
             }
             else
