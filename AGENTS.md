@@ -17,6 +17,7 @@
 - testproject/ is the in-repo host project (conformance scene is the main
   scene): ./sync-addon.ps1 -Project ./testproject && dotnet build
   testproject/*.csproj && godot --headless --path testproject — exit 0 means
-  12/12 (5 frame + manifest + 6 corpus checks). CI runs exactly this.
+  every check passed (5 frame + manifest + one encode check per corpus
+  vector). CI runs exactly this.
 - Product docs describe current state only; history lives in the
   Open-Game-Standards-Alliance knowledge base (knowledge/README.md bridge).

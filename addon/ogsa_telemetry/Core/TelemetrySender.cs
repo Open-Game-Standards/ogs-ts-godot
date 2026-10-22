@@ -7,7 +7,7 @@ namespace Ogsa.Telemetry
 {
 
 /// <summary>
-/// LTS UDP-multicast sender. Default endpoint: 239.255.17.17:40123, TTL 1
+/// OGSA-TS UDP-multicast sender. Default endpoint: 239.255.17.17:40123, TTL 1
 /// (same subnet), loopback enabled for local development (see
 /// implementation-udp.md).
 /// </summary>
@@ -35,8 +35,13 @@ public sealed class TelemetrySender : IDisposable
         _endpoint = new IPEndPoint(IPAddress.Parse(group), port);
     }
 
-    public void Send(FrameType type, Capnp.MessageBuilder message) =>
-        _socket.SendTo(Envelope.EncodeDatagram(type, message.Frame.Segments), _endpoint);
+    /// <summary>Encodes <paramref name="frame"/> in canonical OGSA encoding
+    /// and sends it as one datagram.</summary>
+    public void Send(FrameType type, Wire.WireStruct frame) =>
+        Send(Wire.CanonicalEncoder.EncodeDatagram(type, frame));
+
+    /// <summary>Sends a complete OMT1 datagram as-is.</summary>
+    public void Send(byte[] datagram) => _socket.SendTo(datagram, _endpoint);
 
     public void Dispose() => _socket.Dispose();
 }

@@ -22,15 +22,9 @@ on it, especially around networking and the frame-conversion math.
 ## Install (Godot 4 .NET)
 
 1. Copy `addon/ogsa_telemetry/` into your project as `addons/ogsa_telemetry/`.
-2. Add the Cap'n Proto runtime to your game project (Godot has a real
-   csproj, so no DLL vendoring is needed — NuGet resolves the dependency
-   tree):
-
-   ```
-   dotnet add package Capnp.Net.Runtime --version 1.3.118
-   ```
-
-3. Project Settings → Plugins → enable **OGSA Telemetry (OGSA-TS)**.
+   The addon is plain C# source with no package dependencies — nothing to
+   add to your game's csproj.
+2. Project Settings → Plugins → enable **OGSA Telemetry (OGSA-TS)**.
 
 ## Quick start
 
@@ -68,10 +62,10 @@ Open `addons/ogsa_telemetry/ConformanceScene.tscn` and press **F6**. The
 checker locates the corpus automatically: exported `CorpusDir` if it
 exists, else the `OGSA_TS_CONFORMANCE` env var, else a sibling
 `OGSA-Telemetry-Standard/` of the project, else any ancestor (covers
-projects nested in the alliance checkout). Every golden vector is
-verified against its manifest-declared semantics — names, units,
-ranges, positions, orientations, channel values — plus five
-hand-derived frame-conversion checks (RH/−Z → LH/+Z).
+projects nested in the alliance checkout). The vendored core encodes
+every golden vector on Godot's .NET runtime and must reproduce the
+corpus byte for byte, plus five hand-derived frame-conversion checks
+(RH/−Z → LH/+Z).
 It validates the vendored core against the golden datagrams and the
 frame-conversion math against hand-derived vectors; non-zero exit on
 failure. Run this after every core sync.
@@ -95,9 +89,11 @@ rpm/speed/headlights channels. Press **F5/F6** with
 ## Vendored core discipline
 
 Same as ogsa-ts-unity: core source is copied from ogsa-ts-dotnet (single
-source of truth; its multi-target build + 33-test suite are the gate).
-After pulling upstream: `./sync-core.sh`. Unlike Unity, Godot needs no
-vendored DLLs — NuGet handles Capnp.Net.Runtime in the game csproj.
+source of truth; its multi-target build + test suite are the gate).
+After pulling upstream: `./sync-core.sh` (it also removes vendored files
+that no longer exist upstream). The core writes Cap'n Proto frames itself
+(generated schema writers, canonical OGSA encoding), so there is no
+runtime library to install.
 
 ## Wiring your game's values
 

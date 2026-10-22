@@ -58,8 +58,8 @@ public sealed class TelemetryPublisher : IDisposable
         public bool BoolPushed;
     }
     readonly List<Binding> _bindings = new();
-    readonly List<CapnpGen.ChannelDescriptor> _descriptors = new();
-    readonly List<CapnpGen.DrivePointDescriptor> _drivePoints = new();
+    readonly List<Schema.ChannelDescriptor> _descriptors = new();
+    readonly List<Schema.DrivePointDescriptor> _drivePoints = new();
     string _objectName = "player";
     string _typeLabel = "";
     bool _locked;
@@ -67,23 +67,23 @@ public sealed class TelemetryPublisher : IDisposable
     // discovery environment (schema: "may be re-sent on change") — defaults
     // match the original hardcoded discovery values
     float _envAirDensity = 1.225f, _envTemperature = 20f, _envPressure = 1.01325f, _envGravity = 9.81f;
-    CapnpGen.ContactMedium _envMedium = CapnpGen.ContactMedium.asphalt;
+    Schema.ContactMedium _envMedium = Schema.ContactMedium.Asphalt;
 
     Func<Vector3>? _getPosition;
     Func<(Vector3 specificForce, Vector3 angularVelocityRadS)>? _getBodyDynamics;
     Func<Quaternion>? _getOrientation;
 
-    readonly Queue<(CapnpGen.Event ev, double at)> _recentEvents = new();
-    readonly List<CapnpGen.Event> _eventScratch = new(); // reused re-carrier list
+    readonly Queue<(Schema.Event ev, double at)> _recentEvents = new();
+    readonly List<Schema.Event> _eventScratch = new(); // reused re-carrier list
     uint _nextEventId = 1;
 
     // Cached wire frames. The object graphs are structurally identical on
     // every send (declarations lock at the first tick), so they are built
     // once and refilled in place — the 60-240 Hz motion path stops
     // allocating a frame graph per tick.
-    CapnpGen.DiscoveryFrame? _discoveryFrame;
-    CapnpGen.MotionFrame? _motionFrame;
-    List<CapnpGen.ChannelValue>? _motionValues;
+    Schema.DiscoveryFrame? _discoveryFrame;
+    Schema.MotionFrame? _motionFrame;
+    List<Schema.ChannelValue>? _motionValues;
 
     double _anchor;                 // host clock value at first tick
     double _lastDiscovery = double.NegativeInfinity;
@@ -122,7 +122,7 @@ public sealed class TelemetryPublisher : IDisposable
         if (_typeLabel == typeLabel) return;
         _typeLabel = typeLabel;
         if (_discoveryFrame is not null)
-            _discoveryFrame.Objects[0].TypeLabel = typeLabel;
+            _discoveryFrame.Objects![0].TypeLabel = typeLabel;
         _lastDiscovery = double.NegativeInfinity; // re-send at the next tick
     }
 
@@ -135,7 +135,7 @@ public sealed class TelemetryPublisher : IDisposable
     /// would set gravity 0 and <c>ContactMedium.vacuum</c>. All values are
     /// taken as given — no defaults are guessed on a partial update.</summary>
     public void SetEnvironment(float gravity, float airDensity, float temperature,
-                               float pressure, CapnpGen.ContactMedium medium)
+                               float pressure, Schema.ContactMedium medium)
     {
         if (_envGravity == gravity && _envAirDensity == airDensity &&
             _envTemperature == temperature && _envPressure == pressure &&
@@ -143,8 +143,9 @@ public sealed class TelemetryPublisher : IDisposable
         _envGravity = gravity; _envAirDensity = airDensity;
         _envTemperature = temperature; _envPressure = pressure;
         _envMedium = medium;
-        if (_discoveryFrame is not null && _discoveryFrame.Environment is { } env)
+        if (_discoveryFrame is not null)
         {
+            var env = _discoveryFrame.Environment;
             env.Gravity = gravity; env.AirDensity = airDensity;
             env.Temperature = temperature; env.Pressure = pressure;
             env.Medium = medium;
@@ -176,21 +177,18 @@ public sealed class TelemetryPublisher : IDisposable
                          float stiffness = 65000f, float damping = 5000f)
     {
         LockCheck("AddWheel");
-        _drivePoints.Add(new CapnpGen.DrivePointDescriptor
+        var dp = new Schema.DrivePointDescriptor
         {
             Id = (ushort)_drivePoints.Count,
             Name = name,
-            Offset = new CapnpGen.Vector3 { X = offset.X, Y = offset.Y, Z = offset.Z },
-            Wheel = new CapnpGen.WheelSpec
-            {
-                Radius = radius, Driven = driven, Steered = steered,
-                Suspension = new CapnpGen.SuspensionSpec
-                {
-                    Travel = new CapnpGen.Range { Min = -0.05, Max = 0.15 },
-                    Stiffness = stiffness, Damping = damping,
-                },
-            },
-        });
+            Offset = { X = offset.X, Y = offset.Y, Z = offset.Z },
+        };
+        var wheel = dp.InitWheel();
+        wheel.Radius = radius; wheel.Driven = driven; wheel.Steered = steered;
+        var suspension = wheel.InitSuspension();
+        suspension.Travel.Min = -0.05; suspension.Travel.Max = 0.15;
+        suspension.Stiffness = stiffness; suspension.Damping = damping;
+        _drivePoints.Add(dp);
     }
 
     ChannelHandle AddDescriptor(string name, Unit unit, string description,
@@ -198,17 +196,19 @@ public sealed class TelemetryPublisher : IDisposable
     {
         var b = new Binding { Id = _bindings.Count, Boolean = boolean };
         _bindings.Add(b);
-        _descriptors.Add(new CapnpGen.ChannelDescriptor
+        var descriptor = new Schema.ChannelDescriptor
         {
             Id = (ushort)b.Id,
             Name = name,
             Unit = unit.ToWireString(),
             Description = description,
-            // generated code is not nullable-annotated: null = no range
-            Range = double.IsNaN(min) || double.IsNaN(max)
-                ? null!
-                : new CapnpGen.Range { Min = min, Max = max },
-        });
+        };
+        if (!double.IsNaN(min) && !double.IsNaN(max))
+        {
+            var range = descriptor.InitRange();
+            range.Min = min; range.Max = max;
+        }
+        _descriptors.Add(descriptor);
         return new ChannelHandle(b.Id, name, unit, boolean);
     }
 
@@ -288,20 +288,25 @@ public sealed class TelemetryPublisher : IDisposable
     }
 
     /// <summary>Queues a discrete stimulus; re-carried ~100 ms per
-    /// CONVENTIONS C-10 (replay + id dedup over the lossy transport).</summary>
+    /// CONVENTIONS C-10 (replay + id dedup over the lossy transport).
+    /// <paramref name="direction"/> points toward the stimulus source in the
+    /// object's body frame; null = omnidirectional (<c>noDirection</c>).</summary>
     public void FireEvent(string name, float intensity = 1f, float duration = 0f,
-                          Vector3 direction = default)
+                          Vector3? direction = null)
     {
-        _recentEvents.Enqueue((new CapnpGen.Event
+        var ev = new Schema.Event
         {
             Id = _nextEventId++,
             Name = name,
             Intensity = intensity,
             Duration = duration,
-            Direction = new CapnpGen.Vector3
-                { X = direction.X, Y = direction.Y, Z = direction.Z },
-            Object = "",
-        }, _lastTick));
+        };
+        if (direction is { } d)
+        {
+            var v = ev.InitDirection();
+            v.X = d.X; v.Y = d.Y; v.Z = d.Z;
+        }
+        _recentEvents.Enqueue((ev, _lastTick));
     }
 
     // ---- cadence ----
@@ -317,17 +322,13 @@ public sealed class TelemetryPublisher : IDisposable
 
         if (nowSeconds - _lastDiscovery >= _discoveryInterval)
         {
-            var mb = Capnp.MessageBuilder.Create(512);
-            BuildDiscovery().serialize(mb.BuildRoot<CapnpGen.DiscoveryFrame.WRITER>());
-            _sender.Send(FrameType.Discovery, mb);
+            _sender.Send(FrameType.Discovery, BuildDiscovery());
             _lastDiscovery = nowSeconds;
         }
 
         if (nowSeconds - _lastMotion >= _motionInterval)
         {
-            var mb = Capnp.MessageBuilder.Create(512);
-            BuildMotion(nowSeconds).serialize(mb.BuildRoot<CapnpGen.MotionFrame.WRITER>());
-            _sender.Send(FrameType.Motion, mb);
+            _sender.Send(FrameType.Motion, BuildMotion(nowSeconds));
             _lastMotion = nowSeconds;
         }
 
@@ -335,16 +336,14 @@ public sealed class TelemetryPublisher : IDisposable
             _recentEvents.Dequeue();
         if (_recentEvents.Count > 0 && nowSeconds - _lastEventSend >= 0.050)
         {
-            var mb = Capnp.MessageBuilder.Create(512);
             _eventScratch.Clear();
             foreach (var (ev, _) in _recentEvents)
                 _eventScratch.Add(ev);
-            new CapnpGen.EventFrame
+            _sender.Send(FrameType.Event, new Schema.EventFrame
             {
                 Timestamp = nowSeconds - _anchor,
                 Events = _eventScratch,
-            }.serialize(mb.BuildRoot<CapnpGen.EventFrame.WRITER>());
-            _sender.Send(FrameType.Event, mb);
+            });
             _lastEventSend = nowSeconds;
         }
     }
@@ -372,86 +371,70 @@ public sealed class TelemetryPublisher : IDisposable
     }
 
     // Built once: every field is fixed per publisher (declarations are
-    // locked before the first send) and the serializer only reads. The
+    // locked before the first send) and the encoder only reads. The
     // descriptor lists are referenced live rather than copied — they are
     // immutable after the lock.
-    CapnpGen.DiscoveryFrame BuildDiscovery() => _discoveryFrame ??= new CapnpGen.DiscoveryFrame
+    Schema.DiscoveryFrame BuildDiscovery() => _discoveryFrame ??= new Schema.DiscoveryFrame
     {
         SchemaVersion = 1,
         GameName = _gameName,
         SessionStartUnixUs = _sessionStartTicks / 10, // .NET ticks (100 ns) → µs
-        Environment = new CapnpGen.Environment
+        Environment =
         {
             AirDensity = _envAirDensity, Temperature = _envTemperature,
             Pressure = _envPressure, Gravity = _envGravity, Medium = _envMedium,
         },
-        Objects = new List<CapnpGen.ObjectDescriptor>
+        Objects = new List<Schema.ObjectDescriptor>
         {
             new()
             {
                 Name = _objectName,
-                Type = CapnpGen.ObjectType.vehicle,
+                Type = Schema.ObjectType.Vehicle,
                 TypeLabel = _typeLabel,
                 Primary = true,
                 Location = "local",
-                ReferencePoint = new CapnpGen.NamedPoint
-                    { Name = "origin", Position = new CapnpGen.Vector3() },
+                ReferencePoint = { Name = "origin" },
                 DrivePoints = _drivePoints,
                 Channels = _descriptors,
             },
         },
     };
 
-    CapnpGen.MotionFrame BuildMotion(double nowSeconds)
+    Schema.MotionFrame BuildMotion(double nowSeconds)
     {
         if (_motionFrame is null || _motionValues!.Count != _bindings.Count)
         {
-            // (re)build the cached graph: one object, one value per binding,
-            // union discriminants are rewritten on every assignment so the
-            // cached ChannelValues serialize exactly like fresh ones
-            _motionValues = new List<CapnpGen.ChannelValue>(_bindings.Count);
+            // (re)build the cached graph: one object, one value per binding;
+            // setting a value re-selects its union variant, so the cached
+            // ChannelValues encode exactly like fresh ones
+            _motionValues = new List<Schema.ChannelValue>(_bindings.Count);
             for (int i = 0; i < _bindings.Count; i++)
-                _motionValues.Add(new CapnpGen.ChannelValue { Id = (ushort)i });
-            var o = new CapnpGen.MotionObject { Name = _objectName };
-            if (_motionValues.Count > 0) o.Channels = _motionValues;
-            _motionFrame = new CapnpGen.MotionFrame
+                _motionValues.Add(new Schema.ChannelValue { Id = (ushort)i });
+            _motionFrame = new Schema.MotionFrame
             {
-                Objects = new List<CapnpGen.MotionObject> { o },
+                Objects = new List<Schema.MotionObject>
+                {
+                    new() { Name = _objectName, Channels = _motionValues },
+                },
             };
         }
 
-        var obj = _motionFrame.Objects[0];
-        if (_getPosition is not null)
-        {
-            var p = _getPosition();
-            if (obj.Position is null) obj.Position = new CapnpGen.Vector3();
-            obj.Position.X = p.X; obj.Position.Y = p.Y; obj.Position.Z = p.Z;
-        }
-        else obj.Position = null!;
-        if (_getOrientation is not null)
-        {
-            var q = _getOrientation();
-            if (obj.Orientation is null) obj.Orientation = new CapnpGen.Quaternion();
-            obj.Orientation.X = q.X; obj.Orientation.Y = q.Y;
-            obj.Orientation.Z = q.Z; obj.Orientation.W = q.W;
-        }
-        else obj.Orientation = null!;
+        var obj = _motionFrame.Objects![0];
+        // an unbound pose encodes as zeros — what receivers read for an
+        // absent pose anyway
+        var p = _getPosition?.Invoke() ?? default;
+        obj.Position.X = p.X; obj.Position.Y = p.Y; obj.Position.Z = p.Z;
+        var q = _getOrientation?.Invoke() ?? default;
+        obj.Orientation.X = q.X; obj.Orientation.Y = q.Y;
+        obj.Orientation.Z = q.Z; obj.Orientation.W = q.W;
         if (_getBodyDynamics is not null)
         {
             var (sf, av) = _getBodyDynamics();
-            if (obj.BodyDynamics is null) obj.BodyDynamics = new CapnpGen.BodyDynamics();
-            obj.BodyDynamics.SpecificForce ??= new CapnpGen.Vector3();
-            obj.BodyDynamics.AngularVelocity ??= new CapnpGen.Vector3();
-            obj.BodyDynamics.SpecificForce.X = sf.X;
-            obj.BodyDynamics.SpecificForce.Y = sf.Y;
-            obj.BodyDynamics.SpecificForce.Z = sf.Z;
-            obj.BodyDynamics.AngularVelocity.X = av.X;
-            obj.BodyDynamics.AngularVelocity.Y = av.Y;
-            obj.BodyDynamics.AngularVelocity.Z = av.Z;
-            obj.which = CapnpGen.MotionObject.WHICH.BodyDynamics;
+            var bd = obj.InitBodyDynamics();
+            bd.SpecificForce.X = sf.X; bd.SpecificForce.Y = sf.Y; bd.SpecificForce.Z = sf.Z;
+            bd.AngularVelocity.X = av.X; bd.AngularVelocity.Y = av.Y; bd.AngularVelocity.Z = av.Z;
         }
-        else if (obj.which == CapnpGen.MotionObject.WHICH.BodyDynamics)
-            obj.which = CapnpGen.MotionObject.WHICH.NoDynamics;
+        else obj.SetNoDynamics();
 
         // v1 streams all declared channels each tick; the schema permits
         // sending only changed values once senders have hundreds of channels.
