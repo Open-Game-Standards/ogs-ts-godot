@@ -110,7 +110,7 @@ public sealed partial class ConformanceCheck : Node
             }
             var root = Capnp.DeserializerState.CreateRoot(
                 Ogsa.Telemetry.Envelope.DecodeMessage(payload.Span));
-            var ok = type switch
+            var failure = type switch
             {
                 Ogsa.Telemetry.FrameType.Discovery =>
                     CheckDiscovery(id, CapnpGen.DiscoveryFrame.READER.create(root)),
@@ -118,14 +118,38 @@ public sealed partial class ConformanceCheck : Node
                     CheckMotion(id, CapnpGen.MotionFrame.READER.create(root)),
                 Ogsa.Telemetry.FrameType.Event =>
                     CheckEvent(id, CapnpGen.EventFrame.READER.create(root)),
-                _ => false,
+                _ => "unknown frame type",
             };
-            Check($"corpus: {id} decode", ok);
+            Check($"corpus: {id} decode", failure is null, failure ?? "");
         }
     }
 
     // Per-vector semantics mirroring ogsa-ts-dotnet's ConformanceVectorTests
     // (manifest-declared values; floats are float32-exact, so == is exact).
+    //
+    // Each vector is a list of (field path, condition) pairs rather than one
+    // chained `&&` expression: on failure the field path that didn't match
+    // is reported, instead of a single collapsed "FAIL" that gives no clue
+    // which of 10-20 clauses was the culprit. Conditions are lambdas (not
+    // plain bools) so they stay lazily evaluated in order, same as `&&`
+    // short-circuiting — a count mismatch is reported cleanly instead of
+    // the next clause's out-of-range index access throwing.
+
+    /// <summary>Returns the field path of the first failing check, or null
+    /// if all passed. A throwing check (e.g. an out-of-range index after an
+    /// earlier count mismatch) is reported as a failure at that field path
+    /// instead of crashing the whole conformance run.</summary>
+    static string? FirstFailure(params (string field, Func<bool> ok)[] checks)
+    {
+        foreach (var (field, ok) in checks)
+        {
+            bool passed;
+            try { passed = ok(); }
+            catch (Exception ex) { return $"{field} (threw {ex.GetType().Name}: {ex.Message})"; }
+            if (!passed) return field;
+        }
+        return null;
+    }
 
     /// <summary>Corpus location order: explicit CorpusDir (Inspector),
     /// OGSA_TS_CONFORMANCE env var, sibling of the game project, then
@@ -156,115 +180,115 @@ public sealed partial class ConformanceCheck : Node
         return null;
     }
 
-    static bool CheckDiscovery(string id, CapnpGen.DiscoveryFrame.READER d) => id switch
+    static string? CheckDiscovery(string id, CapnpGen.DiscoveryFrame.READER d) => id switch
     {
-        "discovery-minimal" =>
-            d.SchemaVersion == 1
-            && d.GameName == "conformance"
-            && d.SessionStartUnixUs == 1_730_000_000_000_000L
-            && d.Objects.Count == 1
-            && d.Objects[0].Name == "obj"
-            && d.Objects[0].Type == CapnpGen.ObjectType.vehicle
-            && d.Objects[0].Primary
-            && d.Objects[0].Channels.Count == 0,
-        "discovery-channels" =>
-            d.SchemaVersion == 1
-            && d.GameName == "conformance"
-            && d.Objects.Count == 1
-            && d.Objects[0].Name == "demo_car"
-            && d.Objects[0].TypeLabel == "conformance car"
-            && d.Objects[0].Channels.Count == 3
-            && d.Objects[0].Channels[0].Id == 0
-            && d.Objects[0].Channels[0].Name == "engine.rpm"
-            && d.Objects[0].Channels[0].Unit == "rpm"
-            && d.Objects[0].Channels[0].Range.Min == 0f
-            && d.Objects[0].Channels[0].Range.Max == 9000f
-            && d.Objects[0].Channels[1].Id == 1
-            && d.Objects[0].Channels[1].Name == "vehicle.speed"
-            && d.Objects[0].Channels[1].Unit == "m/s"
-            && d.Objects[0].Channels[1].Range.Min == 0f
-            && d.Objects[0].Channels[1].Range.Max == 30f
-            && d.Objects[0].Channels[2].Id == 2
-            && d.Objects[0].Channels[2].Name == "lights.headlights"
-            && d.Objects[0].Channels[2].Unit == "",
-        _ => false,
+        "discovery-minimal" => FirstFailure(
+            ("schemaVersion", () => d.SchemaVersion == 1),
+            ("gameName", () => d.GameName == "conformance"),
+            ("sessionStartUnixUs", () => d.SessionStartUnixUs == 1_730_000_000_000_000L),
+            ("objects.count", () => d.Objects.Count == 1),
+            ("objects[0].name", () => d.Objects[0].Name == "obj"),
+            ("objects[0].type", () => d.Objects[0].Type == CapnpGen.ObjectType.vehicle),
+            ("objects[0].primary", () => d.Objects[0].Primary),
+            ("objects[0].channels.count", () => d.Objects[0].Channels.Count == 0)),
+        "discovery-channels" => FirstFailure(
+            ("schemaVersion", () => d.SchemaVersion == 1),
+            ("gameName", () => d.GameName == "conformance"),
+            ("objects.count", () => d.Objects.Count == 1),
+            ("objects[0].name", () => d.Objects[0].Name == "demo_car"),
+            ("objects[0].typeLabel", () => d.Objects[0].TypeLabel == "conformance car"),
+            ("objects[0].channels.count", () => d.Objects[0].Channels.Count == 3),
+            ("channels[0].id", () => d.Objects[0].Channels[0].Id == 0),
+            ("channels[0].name", () => d.Objects[0].Channels[0].Name == "engine.rpm"),
+            ("channels[0].unit", () => d.Objects[0].Channels[0].Unit == "rpm"),
+            ("channels[0].range.min", () => d.Objects[0].Channels[0].Range.Min == 0f),
+            ("channels[0].range.max", () => d.Objects[0].Channels[0].Range.Max == 9000f),
+            ("channels[1].id", () => d.Objects[0].Channels[1].Id == 1),
+            ("channels[1].name", () => d.Objects[0].Channels[1].Name == "vehicle.speed"),
+            ("channels[1].unit", () => d.Objects[0].Channels[1].Unit == "m/s"),
+            ("channels[1].range.min", () => d.Objects[0].Channels[1].Range.Min == 0f),
+            ("channels[1].range.max", () => d.Objects[0].Channels[1].Range.Max == 30f),
+            ("channels[2].id", () => d.Objects[0].Channels[2].Id == 2),
+            ("channels[2].name", () => d.Objects[0].Channels[2].Name == "lights.headlights"),
+            ("channels[2].unit", () => d.Objects[0].Channels[2].Unit == "")),
+        _ => "unknown vector id",
     };
 
-    static bool CheckMotion(string id, CapnpGen.MotionFrame.READER m) => id switch
+    static string? CheckMotion(string id, CapnpGen.MotionFrame.READER m) => id switch
     {
-        "motion-pose" =>
-            m.Timestamp == 1.25
-            && m.Objects.Count == 1
-            && m.Objects[0].Name == "obj"
-            && m.Objects[0].Position.X == 1.5f
-            && m.Objects[0].Position.Y == 0.25f
-            && m.Objects[0].Position.Z == -3.75f
-            && m.Objects[0].Orientation.X == 0f
-            && m.Objects[0].Orientation.Y == 0f
-            && m.Objects[0].Orientation.Z == 0f
-            && m.Objects[0].Orientation.W == 1f,
-        "motion-channels" =>
-            m.Timestamp == 2.5
-            && m.Objects.Count == 1
-            && m.Objects[0].Name == "demo_car"
-            && m.Objects[0].Position.X == -2f
-            && m.Objects[0].Position.Y == 0.5f
-            && m.Objects[0].Position.Z == 3f
-            && m.Objects[0].Orientation.Y == 1f
-            && m.Objects[0].Channels.Count == 3
-            && m.Objects[0].Channels[0].Id == 0
-            && m.Objects[0].Channels[0].which == CapnpGen.ChannelValue.WHICH.Number
-            && m.Objects[0].Channels[0].Number == 3250.5f
-            && m.Objects[0].Channels[1].Id == 1
-            && m.Objects[0].Channels[1].Number == 8f
-            && m.Objects[0].Channels[2].Id == 2
-            && m.Objects[0].Channels[2].which == CapnpGen.ChannelValue.WHICH.Boolean
-            && m.Objects[0].Channels[2].Boolean,
-        "motion-multi" =>
-            m.Timestamp == 3.75
-            && m.Objects.Count == 2
-            && m.Objects[0].Name == "player_car"
-            && m.Objects[0].Position.X == 1f
-            && m.Objects[1].Name == "wingman"
-            && m.Objects[1].Position.X == -1f
-            && m.Objects[1].Position.Y == 0.5f
-            && m.Objects[1].Position.Z == 2.5f,
+        "motion-pose" => FirstFailure(
+            ("timestamp", () => m.Timestamp == 1.25),
+            ("objects.count", () => m.Objects.Count == 1),
+            ("objects[0].name", () => m.Objects[0].Name == "obj"),
+            ("objects[0].position.x", () => m.Objects[0].Position.X == 1.5f),
+            ("objects[0].position.y", () => m.Objects[0].Position.Y == 0.25f),
+            ("objects[0].position.z", () => m.Objects[0].Position.Z == -3.75f),
+            ("objects[0].orientation.x", () => m.Objects[0].Orientation.X == 0f),
+            ("objects[0].orientation.y", () => m.Objects[0].Orientation.Y == 0f),
+            ("objects[0].orientation.z", () => m.Objects[0].Orientation.Z == 0f),
+            ("objects[0].orientation.w", () => m.Objects[0].Orientation.W == 1f)),
+        "motion-channels" => FirstFailure(
+            ("timestamp", () => m.Timestamp == 2.5),
+            ("objects.count", () => m.Objects.Count == 1),
+            ("objects[0].name", () => m.Objects[0].Name == "demo_car"),
+            ("objects[0].position.x", () => m.Objects[0].Position.X == -2f),
+            ("objects[0].position.y", () => m.Objects[0].Position.Y == 0.5f),
+            ("objects[0].position.z", () => m.Objects[0].Position.Z == 3f),
+            ("objects[0].orientation.y", () => m.Objects[0].Orientation.Y == 1f),
+            ("objects[0].channels.count", () => m.Objects[0].Channels.Count == 3),
+            ("channels[0].id", () => m.Objects[0].Channels[0].Id == 0),
+            ("channels[0].which", () => m.Objects[0].Channels[0].which == CapnpGen.ChannelValue.WHICH.Number),
+            ("channels[0].number", () => m.Objects[0].Channels[0].Number == 3250.5f),
+            ("channels[1].id", () => m.Objects[0].Channels[1].Id == 1),
+            ("channels[1].number", () => m.Objects[0].Channels[1].Number == 8f),
+            ("channels[2].id", () => m.Objects[0].Channels[2].Id == 2),
+            ("channels[2].which", () => m.Objects[0].Channels[2].which == CapnpGen.ChannelValue.WHICH.Boolean),
+            ("channels[2].boolean", () => m.Objects[0].Channels[2].Boolean)),
+        "motion-multi" => FirstFailure(
+            ("timestamp", () => m.Timestamp == 3.75),
+            ("objects.count", () => m.Objects.Count == 2),
+            ("objects[0].name", () => m.Objects[0].Name == "player_car"),
+            ("objects[0].position.x", () => m.Objects[0].Position.X == 1f),
+            ("objects[1].name", () => m.Objects[1].Name == "wingman"),
+            ("objects[1].position.x", () => m.Objects[1].Position.X == -1f),
+            ("objects[1].position.y", () => m.Objects[1].Position.Y == 0.5f),
+            ("objects[1].position.z", () => m.Objects[1].Position.Z == 2.5f)),
         // corpus v2: pose + the bodyDynamics union variant (accelerometer-
         // style specific force, C-4 angular velocity)
-        "motion-bodydynamics" =>
-            m.Timestamp == 4.5
-            && m.Objects.Count == 1
-            && m.Objects[0].Name == "obj"
-            && m.Objects[0].which == CapnpGen.MotionObject.WHICH.BodyDynamics
-            && m.Objects[0].Position.X == 0.5f
-            && m.Objects[0].Position.Y == 1.25f
-            && m.Objects[0].Position.Z == -2.5f
-            && m.Objects[0].Orientation.X == 0f
-            && m.Objects[0].Orientation.Y == 0.5f
-            && m.Objects[0].Orientation.Z == 0f
-            && m.Objects[0].Orientation.W == 0.875f
-            && m.Objects[0].BodyDynamics.SpecificForce.X == 0.25f
-            && m.Objects[0].BodyDynamics.SpecificForce.Y == 9.5f
-            && m.Objects[0].BodyDynamics.SpecificForce.Z == -1.5f
-            && m.Objects[0].BodyDynamics.AngularVelocity.X == -0.125f
-            && m.Objects[0].BodyDynamics.AngularVelocity.Y == 0.375f
-            && m.Objects[0].BodyDynamics.AngularVelocity.Z == 0.75f,
-        _ => false,
+        "motion-bodydynamics" => FirstFailure(
+            ("timestamp", () => m.Timestamp == 4.5),
+            ("objects.count", () => m.Objects.Count == 1),
+            ("objects[0].name", () => m.Objects[0].Name == "obj"),
+            ("objects[0].which", () => m.Objects[0].which == CapnpGen.MotionObject.WHICH.BodyDynamics),
+            ("objects[0].position.x", () => m.Objects[0].Position.X == 0.5f),
+            ("objects[0].position.y", () => m.Objects[0].Position.Y == 1.25f),
+            ("objects[0].position.z", () => m.Objects[0].Position.Z == -2.5f),
+            ("objects[0].orientation.x", () => m.Objects[0].Orientation.X == 0f),
+            ("objects[0].orientation.y", () => m.Objects[0].Orientation.Y == 0.5f),
+            ("objects[0].orientation.z", () => m.Objects[0].Orientation.Z == 0f),
+            ("objects[0].orientation.w", () => m.Objects[0].Orientation.W == 0.875f),
+            ("bodyDynamics.specificForce.x", () => m.Objects[0].BodyDynamics.SpecificForce.X == 0.25f),
+            ("bodyDynamics.specificForce.y", () => m.Objects[0].BodyDynamics.SpecificForce.Y == 9.5f),
+            ("bodyDynamics.specificForce.z", () => m.Objects[0].BodyDynamics.SpecificForce.Z == -1.5f),
+            ("bodyDynamics.angularVelocity.x", () => m.Objects[0].BodyDynamics.AngularVelocity.X == -0.125f),
+            ("bodyDynamics.angularVelocity.y", () => m.Objects[0].BodyDynamics.AngularVelocity.Y == 0.375f),
+            ("bodyDynamics.angularVelocity.z", () => m.Objects[0].BodyDynamics.AngularVelocity.Z == 0.75f)),
+        _ => "unknown vector id",
     };
 
-    static bool CheckEvent(string id, CapnpGen.EventFrame.READER e) => id switch
+    static string? CheckEvent(string id, CapnpGen.EventFrame.READER e) => id switch
     {
-        "event-impact" =>
-            e.Timestamp == 0.125
-            && e.Events.Count == 1
-            && e.Events[0].Id == 7
-            && e.Events[0].Name == "body.impact"
-            && e.Events[0].Intensity == 0.75f
-            && e.Events[0].Duration == 0.25f
-            && e.Events[0].which == CapnpGen.Event.WHICH.Direction
-            && e.Events[0].Direction.X == -1f
-            && e.Events[0].Direction.Y == 0f
-            && e.Events[0].Direction.Z == 0f,
-        _ => false,
+        "event-impact" => FirstFailure(
+            ("timestamp", () => e.Timestamp == 0.125),
+            ("events.count", () => e.Events.Count == 1),
+            ("events[0].id", () => e.Events[0].Id == 7),
+            ("events[0].name", () => e.Events[0].Name == "body.impact"),
+            ("events[0].intensity", () => e.Events[0].Intensity == 0.75f),
+            ("events[0].duration", () => e.Events[0].Duration == 0.25f),
+            ("events[0].which", () => e.Events[0].which == CapnpGen.Event.WHICH.Direction),
+            ("events[0].direction.x", () => e.Events[0].Direction.X == -1f),
+            ("events[0].direction.y", () => e.Events[0].Direction.Y == 0f),
+            ("events[0].direction.z", () => e.Events[0].Direction.Z == 0f)),
+        _ => "unknown vector id",
     };
 }
