@@ -1,6 +1,11 @@
 # ogsa-ts-godot
 
-Godot 4 (.NET) addon for the [OGSA Telemetry Standard (OGSA-TS)](../OGSA-Telemetry-Standard)
+<picture>
+  <source media="(prefers-color-scheme: dark)" srcset="assets/telemetry-standard-dark.svg">
+  <img align="right" width="120" src="assets/telemetry-standard.svg" alt="OGSA Telemetry Standard logo">
+</picture>
+
+Godot 4 (.NET) addon for the [OGSA Telemetry Standard (OGSA-TS)](https://github.com/Open-Game-Standards-Alliance/OGSA-Telemetry-Standard)
 — broadcast live motion and event telemetry from a Godot game to motion
 platforms, haptic hardware, dashboards, and loggers on the player's local
 network, over UDP multicast. Nothing leaves the LAN.
