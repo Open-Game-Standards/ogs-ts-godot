@@ -70,7 +70,9 @@ exists, else the `OGSA_TS_CONFORMANCE` env var, else a sibling
 projects nested in the alliance checkout). The vendored core encodes
 every golden vector on Godot's .NET runtime and must reproduce the
 corpus byte for byte, plus five hand-derived frame-conversion checks
-(RH/−Z → LH/+Z).
+(RH/−Z → LH/+Z) and a pause check: with the scene tree paused, a live
+publisher node must keep streaming motion frames and report
+`session.paused`.
 It validates the vendored core against the golden datagrams and the
 frame-conversion math against hand-derived vectors; non-zero exit on
 failure. Run this after every core sync.
@@ -99,6 +101,14 @@ After pulling upstream: `./sync-core.sh` (it also removes vendored files
 that no longer exist upstream). The core writes Cap'n Proto frames itself
 (generated schema writers, canonical OGSA encoding), so there is no
 runtime library to install.
+
+## Pause
+
+The publisher keeps streaming while the game is paused and reports the
+pause on the ratified `session.paused` channel ([CONVENTIONS C-11](https://github.com/Open-Game-Standards-Alliance/OGSA-Telemetry-Standard/blob/main/CONVENTIONS.md#c-11-pause)), so motion
+rigs and haptics come to rest instead of freezing mid-move or dropping
+the session. `SceneTree.Paused` is detected automatically (`AutoDetectPause`; the node ticks from `SceneTree.ProcessFrame`, so it never processes your scene during a pause);
+games that pause another way call `SetPaused(true/false)`. Nothing to wire.
 
 ## Wiring your game's values
 

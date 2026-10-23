@@ -17,6 +17,13 @@ namespace Ogsa.Telemetry.Godot;
 /// quaternion (x, y, −z, −w) — verified algebraically (a Godot left-yaw
 /// lands facing −X in both frames) and self-inverse. Vectors (velocity,
 /// direction, force) convert like position.
+///
+/// Pause (standard CONVENTIONS C-11): the node ticks from the scene tree's
+/// ProcessFrame signal, which fires every frame even while the tree is
+/// paused, so it keeps streaming and reports the pause on
+/// <c>session.paused</c> without making this node (or its children)
+/// process during the pause. SceneTree.Paused is detected automatically;
+/// games that pause another way call <see cref="SetPaused"/>.
 /// </summary>
 public sealed partial class TelemetryPublisherNode : Node3D
 {
@@ -44,7 +51,14 @@ public sealed partial class TelemetryPublisherNode : Node3D
     /// +9.80665 at rest.</summary>
     [Export] public bool SendBodyDynamics = true;
 
+    /// <summary>Report the game as paused (session.paused) while
+    /// SceneTree.Paused is set. Games that pause another way call
+    /// SetPaused; both sources combine.</summary>
+    [ExportGroup("Pause")]
+    [Export] public bool AutoDetectPause = true;
+
     Core.TelemetryPublisher? _publisher;
+    bool _manualPaused, _wasPaused;
     Core.TelemetrySender? _sender;
     bool _tornDown;
     readonly Core.BodyDynamicsDeriver _deriver = new();
@@ -87,6 +101,7 @@ public sealed partial class TelemetryPublisherNode : Node3D
 
         if (!string.IsNullOrEmpty(ObjectName))
             Publisher.DeclareObject(ObjectName, TypeLabel);
+        Publisher.DeclarePause();
 
         if (AutoBindBody != null)
         {
@@ -98,16 +113,31 @@ public sealed partial class TelemetryPublisherNode : Node3D
                 Publisher.BindBodyDynamics(
                     () => (_deriver.SpecificForce, _deriver.AngularVelocity));
         }
+
+        // not _Process: that stops while the tree is paused (C-11)
+        GetTree().ProcessFrame += OnProcessFrame;
     }
 
-    public override void _Process(double delta)
+    /// <summary>Reports a pause the engine can't see (a game-managed pause
+    /// that leaves SceneTree.Paused unset). Combines with AutoDetectPause:
+    /// the game is paused if either says so.</summary>
+    public void SetPaused(bool paused) => _manualPaused = paused;
+
+    /// <summary>Whether the publisher is currently reporting a pause.</summary>
+    public bool Paused => _publisher?.Paused ?? false;
+
+    void OnProcessFrame()
     {
         var pub = _publisher;
         if (pub == null || Engine.IsEditorHint())
             return;
+        bool paused = _manualPaused || (AutoDetectPause && GetTree().Paused);
+        if (paused != pub.Paused) pub.SetPaused(paused);
         // derivation runs every tick with a pose (not just at publish
-        // cadence): engine-measured velocity, quaternion-delta rates
-        if (SendBodyDynamics && AutoBindBody != null)
+        // cadence): engine-measured velocity, quaternion-delta rates.
+        // Nothing is measured while paused (C-11); resuming starts the
+        // derivation fresh rather than differentiating across the pause
+        if (SendBodyDynamics && AutoBindBody != null && !paused)
         {
             if (GodotObject.IsInstanceValid(AutoBindBody))
             {
@@ -115,8 +145,11 @@ public sealed partial class TelemetryPublisherNode : Node3D
                 var t = Time.GetTicksMsec() / 1000.0;
                 var pos = ToStandard(body.GlobalPosition);
                 var quat = ToStandard(body.GlobalTransform.Basis.GetRotationQuaternion());
-                var vel = ToStandard(body.LinearVelocity);
-                _deriver.Sample(t, pos, quat, hasVelocity: true, engineVelocity: vel);
+                if (_wasPaused)
+                    _deriver.Reset(pos, quat, t);
+                else
+                    _deriver.Sample(t, pos, quat, hasVelocity: true,
+                                    engineVelocity: ToStandard(body.LinearVelocity));
             }
             else
             {
@@ -124,6 +157,7 @@ public sealed partial class TelemetryPublisherNode : Node3D
                 _deriver.Reset(default, System.Numerics.Quaternion.Identity, 0);
             }
         }
+        _wasPaused = paused;
         pub.Tick(Time.GetTicksMsec() / 1000.0);
     }
 
@@ -131,6 +165,8 @@ public sealed partial class TelemetryPublisherNode : Node3D
     {
         if (_tornDown) return;
         _tornDown = true;
+        if (!Engine.IsEditorHint())
+            GetTree().ProcessFrame -= OnProcessFrame;
         _publisher?.Dispose();
         _sender?.Dispose();
     }

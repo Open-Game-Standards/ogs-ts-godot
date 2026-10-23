@@ -2,7 +2,10 @@
 using System;
 using System.IO;
 using System.Linq;
+using System.Net;
+using System.Net.Sockets;
 using System.Text.Json;
+using System.Threading.Tasks;
 using Godot;
 
 namespace Ogsa.Telemetry.Godot;
@@ -12,7 +15,9 @@ namespace Ogsa.Telemetry.Godot;
 /// Validates (1) the vendored core, running on this engine's .NET runtime,
 /// encodes the standard repo's golden datagrams byte for byte, and (2) this engine's
 /// frame conversion against hand-derived vectors (Godot RH/−Z → OGSA-TS
-/// LH/+Z). Prints PASS/FAIL per check and exits non-zero on failure.
+/// LH/+Z), and (3) that the publisher node keeps streaming with
+/// session.paused set while the scene tree is paused (CONVENTIONS C-11).
+/// Prints PASS/FAIL per check and exits non-zero on failure.
 ///
 /// Set CorpusDir to the standard repo's conformance/ folder (absolute
 /// path is fine) and run the scene (F6).
@@ -32,10 +37,12 @@ public sealed partial class ConformanceCheck : Node
         GD.Print($"{(ok ? "PASS" : "FAIL")} {name}{(ok || detail == "" ? "" : $" — {detail}")}");
     }
 
-    public override void _Ready()
+    public override async void _Ready()
     {
+        ProcessMode = ProcessModeEnum.Always; // the pause check pauses the tree
         FrameConversionChecks();
         CorpusChecks();
+        await PauseChecks();
         GD.Print($"conformance: {_pass} passed, {_fail} failed");
         GetTree().Quit(_fail == 0 ? 0 : 1);
     }
@@ -112,6 +119,43 @@ public sealed partial class ConformanceCheck : Node
                 actual.AsSpan().SequenceEqual(expected),
                 $"{actual.Length} bytes encoded, corpus has {expected.Length}");
         }
+    }
+
+    /// <summary>Pauses the tree under a live publisher node and counts
+    /// what reaches a multicast listener: motion must keep flowing, with
+    /// the node reporting the pause. A host without multicast loopback
+    /// delivers nothing at all, which is reported as a skip, not a pass.</summary>
+    async Task PauseChecks()
+    {
+        const int port = 41399;
+        using var rx = new UdpClient();
+        rx.Client.SetSocketOption(SocketOptionLevel.Socket, SocketOptionName.ReuseAddress, true);
+        rx.Client.Bind(new IPEndPoint(IPAddress.Any, port));
+        rx.JoinMulticastGroup(IPAddress.Parse("239.255.17.17"));
+
+        var node = new TelemetryPublisherNode { Port = port, ObjectName = "pause_check" };
+        AddChild(node);
+        GetTree().Paused = true;
+        await ToSignal(GetTree().CreateTimer(0.5, processAlways: true),
+                       SceneTreeTimer.SignalName.Timeout);
+
+        int total = 0, motion = 0;
+        var from = new IPEndPoint(IPAddress.Any, 0);
+        while (rx.Available > 0)
+        {
+            var d = rx.Receive(ref from);
+            total++;
+            if (d.Length > 4 && d[4] == (byte)Ogsa.Telemetry.FrameType.Motion) motion++;
+        }
+        Check("pause: node reports session.paused", node.Paused);
+        if (total == 0)
+            GD.Print("SKIP pause: streaming (no multicast loopback on this host)");
+        else
+            Check("pause: motion keeps streaming while the tree is paused",
+                motion >= 5, $"{motion} motion frames in 0.5 s");
+
+        GetTree().Paused = false;
+        node.QueueFree();
     }
 
     /// <summary>Corpus location order: explicit CorpusDir (Inspector),

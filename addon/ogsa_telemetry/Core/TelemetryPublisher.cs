@@ -63,6 +63,7 @@ public sealed class TelemetryPublisher : IDisposable
     string _objectName = "player";
     string _typeLabel = "";
     bool _locked;
+    ChannelHandle? _pauseChannel;
 
     // discovery environment (schema: "may be re-sent on change") — defaults
     // are the standard atmosphere in the schema's SI units (pressure in Pa)
@@ -170,6 +171,45 @@ public sealed class TelemetryPublisher : IDisposable
         LockCheck("DeclareBooleanChannel");
         return AddDescriptor(name, Unit.Scalar, description,
                              double.NaN, double.NaN, boolean: true);
+    }
+
+    /// <summary>The ratified pause channel (CHANNELS.md, CONVENTIONS C-11).</summary>
+    public const string PausedChannelName = "session.paused";
+
+    /// <summary>Declares <c>session.paused</c>, for hosts that can tell
+    /// when their game is paused (CONVENTIONS C-11). Idempotent; like any
+    /// declaration it must happen before the first tick. Engine wrappers
+    /// call it for you.</summary>
+    public void DeclarePause()
+    {
+        if (_pauseChannel is not null) return;
+        LockCheck("DeclarePause");
+        _pauseChannel = DeclareBooleanChannel(PausedChannelName,
+            "Simulation paused for the player (C-11)");
+    }
+
+    /// <summary>Whether the game is currently reported as paused.</summary>
+    public bool Paused { get; private set; }
+
+    /// <summary>Reports the game's pause state (CONVENTIONS C-11). Keep
+    /// ticking while paused: motion frames keep flowing with the frozen
+    /// pose, the pause channel set and no dynamics, so receivers bring
+    /// actuators to rest instead of treating the silence as a dead
+    /// session. Declares the channel on first use; after the first tick
+    /// that requires an earlier <see cref="DeclarePause"/>.</summary>
+    public void SetPaused(bool paused)
+    {
+        if (_pauseChannel is null)
+        {
+            if (_locked)
+                throw new InvalidOperationException(
+                    "SetPaused after the first Tick without DeclarePause — " +
+                    "receivers cache descriptors by id, so declare the pause " +
+                    "channel before the first tick");
+            DeclarePause();
+        }
+        Paused = paused;
+        SetChannel(_pauseChannel!, paused);
     }
 
     public void AddWheel(string name, Vector3 offset, float radius,
@@ -427,7 +467,9 @@ public sealed class TelemetryPublisher : IDisposable
         var q = _getOrientation?.Invoke() ?? default;
         obj.Orientation.X = q.X; obj.Orientation.Y = q.Y;
         obj.Orientation.Z = q.Z; obj.Orientation.W = q.W;
-        if (_getBodyDynamics is not null)
+        // C-11: nothing is measured while the simulation is stopped, and a
+        // derivative across the pause boundary is meaningless
+        if (_getBodyDynamics is not null && !Paused)
         {
             var (sf, av) = _getBodyDynamics();
             var bd = obj.InitBodyDynamics();
