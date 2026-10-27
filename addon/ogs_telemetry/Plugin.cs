@@ -1,7 +1,7 @@
 #nullable enable
 using Godot;
 
-namespace Ogsa.Telemetry.Godot;
+namespace Ogs.Telemetry.Godot;
 
 /// <summary>Editor plugin entry — registers the addon; all behaviour
 /// lives in TelemetryPublisherNode.</summary>

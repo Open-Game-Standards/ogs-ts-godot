@@ -9,17 +9,17 @@ name: ci
 on: [push, pull_request]
 
 env:
-  ORG: Open-Game-Standards-Alliance
+  ORG: Open-Game-Standards
   GODOT_VERSION: 4.7.2-stable
 
 jobs:
   notify-dotnet:
-    # ogsa-ts-dotnet's own core-drift job checks this repo back and can
+    # ogs-ts-dotnet's own core-drift job checks this repo back and can
     # fail purely from push-order timing if this repo's sync lands after
-    # ogsa-ts-dotnet's push — tell it to recheck now that this push
+    # ogs-ts-dotnet's push — tell it to recheck now that this push
     # landed, so that self-heals without a manual re-run. Needs
     # CROSS_REPO_DISPATCH_TOKEN (a fine-grained PAT scoped to just the
-    # Open-Game-Standards-Alliance engine repos, with Contents: Read and
+    # Open-Game-Standards engine repos, with Contents: Read and
     # write — confirmed by a live 403 "Resource not accessible by
     # personal access token" from this endpoint when that permission was
     # missing; GitHub's own docs don't state it). Skipped entirely (not
@@ -33,7 +33,7 @@ jobs:
       # blocks it there); gate through this env var instead
       HAS_DISPATCH_TOKEN: ${{ secrets.CROSS_REPO_DISPATCH_TOKEN != '' }}
     steps:
-      - name: Dispatch sibling-pushed to ogsa-ts-dotnet
+      - name: Dispatch sibling-pushed to ogs-ts-dotnet
         if: env.HAS_DISPATCH_TOKEN == 'true'
         env:
           TOKEN: ${{ secrets.CROSS_REPO_DISPATCH_TOKEN }}
@@ -41,14 +41,14 @@ jobs:
           status=$(curl -s -o /tmp/dispatch-response.json -w '%{http_code}' -X POST \
             -H "Authorization: Bearer $TOKEN" \
             -H "Accept: application/vnd.github+json" \
-            "https://api.github.com/repos/${{ env.ORG }}/ogsa-ts-dotnet/dispatches" \
+            "https://api.github.com/repos/${{ env.ORG }}/ogs-ts-dotnet/dispatches" \
             -d "{\"event_type\":\"sibling-pushed\",\"client_payload\":{\"source\":\"${{ github.repository }}\",\"sha\":\"${{ github.sha }}\"}}")
           echo "HTTP status: $status"
           cat /tmp/dispatch-response.json 2>/dev/null || true
           # the response body is GitHub's own error text, never the token
           # (which curl never prints) — safe to show in logs for diagnosis
           if [ "$status" -lt 200 ] || [ "$status" -ge 300 ]; then
-            echo "dispatch to ogsa-ts-dotnet failed (see response above)"
+            echo "dispatch to ogs-ts-dotnet failed (see response above)"
             exit 1
           fi
 
@@ -70,8 +70,8 @@ jobs:
       - uses: actions/checkout@v7
       - uses: actions/checkout@v7
         with:
-          repository: ${{ env.ORG }}/OGSA-Telemetry-Standard
-          path: OGSA-Telemetry-Standard
+          repository: ${{ env.ORG }}/OGS-Telemetry-Standard
+          path: OGS-Telemetry-Standard
       - uses: actions/setup-dotnet@v6
         with:
           dotnet-version: "8.0.x"
@@ -96,7 +96,7 @@ jobs:
         run: ./sync-addon.ps1 -Project ./testproject
 
       - name: Build C# solution
-        run: dotnet build testproject/ogsa-ts-godot-testproject.csproj --nologo
+        run: dotnet build testproject/ogs-ts-godot-testproject.csproj --nologo
 
       # Windows mono builds ship a *_console.exe (stdout-attached) sibling
       # to the windowed exe; Linux/macOS builds are console-native, so the

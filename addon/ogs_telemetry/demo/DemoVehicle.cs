@@ -1,10 +1,10 @@
 #nullable enable
 using Godot;
 
-namespace Ogsa.Telemetry.Godot.Demo;
+namespace Ogs.Telemetry.Godot.Demo;
 
 /// <summary>Demo vehicle: moves in a circle feeding rpm/speed/headlights
-/// channels. Pair with ogsa-ts-dotnet's TelemetryReceive.</summary>
+/// channels. Pair with ogs-ts-dotnet's TelemetryReceive.</summary>
 public sealed partial class DemoVehicle : Node3D
 {
     double _t;
@@ -18,9 +18,9 @@ public sealed partial class DemoVehicle : Node3D
         // keeps the file free of nullable-field warnings (CS8602/8604)
         var telemetry = GetNode<TelemetryPublisherNode>("%TelemetryPublisher");
         var rpm = telemetry.DeclareChannel(
-            "engine.rpm", Ogsa.Telemetry.Unit.Rpm, "Demo engine speed", 0, 9000);
+            "engine.rpm", Ogs.Telemetry.Unit.Rpm, "Demo engine speed", 0, 9000);
         var speed = telemetry.DeclareChannel(
-            "vehicle.speed", Ogsa.Telemetry.Unit.MetrePerSecond,
+            "vehicle.speed", Ogs.Telemetry.Unit.MetrePerSecond,
             "Speed over ground", 0, 30);
         var headlights = telemetry.DeclareBooleanChannel(
             "lights.headlights", "Headlights on/off");
@@ -30,11 +30,11 @@ public sealed partial class DemoVehicle : Node3D
         // game-native units — the publisher converts on the wire: speed is
         // measured in km/h here (ω·r in m/s × 3.6), declared m/s.
         telemetry.BindChannel(speed, () => AngularSpeed * Radius * 3.6,
-            Ogsa.Telemetry.Unit.KilometrePerHour);
+            Ogs.Telemetry.Unit.KilometrePerHour);
         telemetry.BindBooleanChannel(headlights, () => true);
 
         // pose via manual binding (no physics body needed in the demo);
-        // the node converts Godot RH/-Z to OGSA-TS LH/+Z inside BindPose.
+        // the node converts Godot RH/-Z to OGS-TS LH/+Z inside BindPose.
         telemetry.BindPose(
             () => GlobalPosition,
             () => GlobalTransform.Basis.GetRotationQuaternion());

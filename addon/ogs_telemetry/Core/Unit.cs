@@ -1,10 +1,10 @@
 #nullable enable
 using System;
-namespace Ogsa.Telemetry
+namespace Ogs.Telemetry
 {
 
 /// <summary>
-/// Closed unit set for OGSA-TS channels (CONVENTIONS.md C-3: SI base units
+/// Closed unit set for OGS-TS channels (CONVENTIONS.md C-3: SI base units
 /// plus a closed whitelist). Members in the first block are target units —
 /// legal for declaring channels and carried on the wire in discovery.
 /// Members in the second block are source units only: accepted by

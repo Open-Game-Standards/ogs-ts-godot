@@ -1,5 +1,5 @@
 ; Engine configuration file.
-; Host project for the ogsa_telemetry addon — runs the conformance
+; Host project for the ogs_telemetry addon — runs the conformance
 ; scene as its main scene, so CI (or anyone) can verify the addon with:
 ;   godot --headless --path testproject
 ; The addon itself is synced in by sync-addon.ps1 (single source: ../addon).
@@ -8,17 +8,17 @@ config_version=5
 
 [application]
 
-config/name="ogsa-ts-godot-testproject"
-run/main_scene="res://addons/ogsa_telemetry/ConformanceScene.tscn"
+config/name="ogs-ts-godot-testproject"
+run/main_scene="res://addons/ogs_telemetry/ConformanceScene.tscn"
 config/features=PackedStringArray("4.7", "C#")
 
 [dotnet]
 
-project/assembly_name="ogsa-ts-godot-testproject"
+project/assembly_name="ogs-ts-godot-testproject"
 
 [editor_plugins]
 
-enabled=PackedStringArray("res://addons/ogsa_telemetry/plugin.cfg")
+enabled=PackedStringArray("res://addons/ogs_telemetry/plugin.cfg")
 
 [rendering]
 

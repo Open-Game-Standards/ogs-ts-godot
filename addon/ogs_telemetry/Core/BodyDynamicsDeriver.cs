@@ -2,14 +2,14 @@
 using System.Numerics;
 
 // BodyDynamicsDeriver — see the class doc below; the C++ twin lives in
-// ogsa-ts-unreal's OgsaTelemetryFrame.h (both must stay behaviourally
+// ogs-ts-unreal's OgsTelemetryFrame.h (both must stay behaviourally
 // identical; the tests here pin the semantics).
 
-namespace Ogsa.Telemetry
+namespace Ogs.Telemetry
 {
 
 /// <summary>
-/// Derives OGSA-TS body dynamics (specific force + angular velocity) from
+/// Derives OGS-TS body dynamics (specific force + angular velocity) from
 /// a sampled world pose, for senders whose game does not expose
 /// accelerometer-class data natively. Semantics per the schema's
 /// bodyDynamics variant (convention A, accelerometer-style):

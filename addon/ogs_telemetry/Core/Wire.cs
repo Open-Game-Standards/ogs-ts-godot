@@ -5,11 +5,11 @@ using System.Collections.Generic;
 using System.Runtime.InteropServices;
 using System.Text;
 
-namespace Ogsa.Telemetry.Wire
+namespace Ogs.Telemetry.Wire
 {
 
 /// <summary>
-/// Base of the generated schema writers (<c>Schema/ogsa_telemetry.writers.cs</c>):
+/// Base of the generated schema writers (<c>Schema/ogs_telemetry.writers.cs</c>):
 /// one struct's data words and pointer slots, held as an object tree until
 /// <see cref="CanonicalEncoder"/> lays the whole message out. Pointer slots
 /// hold a <see cref="string"/> (Text), a <see cref="WireStruct"/>, or a
@@ -77,7 +77,7 @@ public abstract class WireStruct
 /// objects in preorder, trailing zero data words and null pointers
 /// truncated (per struct list: across all elements), zero-sized structs at
 /// offset −1. Together with the writers' field-presence rules this is the
-/// standard's canonical OGSA encoding: the bytes depend only on content.
+/// standard's canonical OGS encoding: the bytes depend only on content.
 /// </summary>
 public static class CanonicalEncoder
 {

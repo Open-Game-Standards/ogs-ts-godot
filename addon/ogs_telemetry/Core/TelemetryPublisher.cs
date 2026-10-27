@@ -5,7 +5,7 @@ using System.Linq;
 using System.Diagnostics;
 using System.Numerics;
 
-namespace Ogsa.Telemetry
+namespace Ogs.Telemetry
 {
 
 /// <summary>Handle to a declared channel; pass to Bind/Set methods.</summary>
@@ -22,7 +22,7 @@ public sealed class ChannelHandle
 }
 
 /// <summary>
-/// Engine-agnostic OGSA-TS publisher: two-phase wiring over a
+/// Engine-agnostic OGS-TS publisher: two-phase wiring over a
 /// <see cref="TelemetrySender"/>.
 ///
 /// 1. Declare (setup): the object, optional wheel drive points, and channels

@@ -3,11 +3,11 @@ using System;
 using System.Net;
 using System.Net.Sockets;
 
-namespace Ogsa.Telemetry
+namespace Ogs.Telemetry
 {
 
 /// <summary>
-/// OGSA-TS UDP-multicast sender. Default endpoint: 239.255.17.17:40123, TTL 1
+/// OGS-TS UDP-multicast sender. Default endpoint: 239.255.17.17:40123, TTL 1
 /// (same subnet), loopback enabled for local development (see
 /// implementation-udp.md).
 /// </summary>
@@ -35,7 +35,7 @@ public sealed class TelemetrySender : IDisposable
         _endpoint = new IPEndPoint(IPAddress.Parse(group), port);
     }
 
-    /// <summary>Encodes <paramref name="frame"/> in canonical OGSA encoding
+    /// <summary>Encodes <paramref name="frame"/> in canonical OGS encoding
     /// and sends it as one datagram.</summary>
     public void Send(FrameType type, Wire.WireStruct frame) =>
         Send(Wire.CanonicalEncoder.EncodeDatagram(type, frame));

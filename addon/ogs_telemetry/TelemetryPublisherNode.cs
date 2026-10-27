@@ -1,17 +1,17 @@
 #nullable enable
 using System;
 using Godot;
-using Core = Ogsa.Telemetry;
+using Core = Ogs.Telemetry;
 
-namespace Ogsa.Telemetry.Godot;
+namespace Ogs.Telemetry.Godot;
 
 /// <summary>
-/// OGSA-TS publisher for one vehicle/object. Configure transport and
+/// OGS-TS publisher for one vehicle/object. Configure transport and
 /// cadence in the Inspector, declare channels in _Ready, then bind game
 /// values (pull) or push per tick — declarations lock at the first tick.
 ///
 /// Frame conversion (this engine needs it — unlike Unity): Godot is
-/// right-handed with −Z forward; OGSA-TS is left-handed with +Z forward.
+/// right-handed with −Z forward; OGS-TS is left-handed with +Z forward.
 /// The map is "negate Z": position (x, y, −z); for orientation the
 /// similarity transform R′ = diag(1,1,−1)·R·diag(1,1,−1) gives the
 /// quaternion (x, y, −z, −w) — verified algebraically (a Godot left-yaw
@@ -218,14 +218,14 @@ public sealed partial class TelemetryPublisherNode : Node3D
     /// 0, medium vacuum). Callable before the first tick and afterwards.
     /// </summary>
     public void SetEnvironment(float gravity, float airDensity, float temperature,
-                               float pressure, Ogsa.Telemetry.Schema.ContactMedium medium)
+                               float pressure, Ogs.Telemetry.Schema.ContactMedium medium)
         => Publisher.SetEnvironment(gravity, airDensity, temperature, pressure, medium);
 
     /// <summary>As above, with gravity as a Godot world-frame vector
     /// (m/s², pointing the way gravity pulls; standard CONVENTIONS C-12).
     /// </summary>
     public void SetEnvironment(Vector3 gravity, float airDensity, float temperature,
-                               float pressure, Ogsa.Telemetry.Schema.ContactMedium medium)
+                               float pressure, Ogs.Telemetry.Schema.ContactMedium medium)
         => Publisher.SetEnvironment(ToStandard(gravity), airDensity, temperature, pressure, medium);
 
     /// <summary>Updates only the session gravity (Godot world frame).
@@ -254,14 +254,14 @@ public sealed partial class TelemetryPublisherNode : Node3D
     // ---- bindings (pull model) ----
 
     /// <summary>Binds pose getters in Godot's world frame; conversion to
-    /// the OGSA-TS frame happens inside the lambdas.</summary>
+    /// the OGS-TS frame happens inside the lambdas.</summary>
     public void BindPose(Func<Vector3>? position, Func<Quaternion>? orientation)
         => Publisher.BindPose(
             position is null ? null : () => ToStandard(position()),
             orientation is null ? null : () => ToStandard(orientation()));
 
     /// <summary>Binds a vector-valued getter (velocity, force direction …)
-    /// already in OGSA-TS frame terms — convert with ToStandard at the
+    /// already in OGS-TS frame terms — convert with ToStandard at the
     /// call site; exposed here for symmetry with the Unity wrapper.</summary>
     public void BindChannel(Core.ChannelHandle channel, Func<double> source,
                             Core.Unit sourceUnit)
@@ -287,19 +287,19 @@ public sealed partial class TelemetryPublisherNode : Node3D
                                new System.Numerics.Vector3(
                                    direction.X, direction.Y, -direction.Z));
 
-    // ---- Godot → OGSA-TS frame conversion ----
+    // ---- Godot → OGS-TS frame conversion ----
 
-    /// <summary>Godot (RH, −Z fwd) → OGSA-TS (LH, +Z fwd): negate Z.</summary>
+    /// <summary>Godot (RH, −Z fwd) → OGS-TS (LH, +Z fwd): negate Z.</summary>
     public static System.Numerics.Vector3 ToStandard(Vector3 v) =>
         new(v.X, v.Y, -v.Z);
 
-    /// <summary>Godot quaternion → OGSA-TS quaternion: (x, y, −z, −w).
+    /// <summary>Godot quaternion → OGS-TS quaternion: (x, y, −z, −w).
     /// Exact similarity transform R′ = M·R·M with M = diag(1,1,−1);
     /// norm-preserving and self-inverse.</summary>
     public static System.Numerics.Quaternion ToStandard(Quaternion q) =>
         new(q.X, q.Y, -q.Z, -q.W);
 
-    /// <summary>OGSA-TS → Godot (same involutions).</summary>
+    /// <summary>OGS-TS → Godot (same involutions).</summary>
     public static Vector3 ToGodot(System.Numerics.Vector3 v) =>
         new((float)v.X, (float)v.Y, (float)-v.Z);
 

@@ -8,13 +8,13 @@ using System.Text.Json;
 using System.Threading.Tasks;
 using Godot;
 
-namespace Ogsa.Telemetry.Godot;
+namespace Ogs.Telemetry.Godot;
 
 /// <summary>
 /// Cross-engine conformance check: run this scene once per engine plugin.
 /// Validates (1) the vendored core, running on this engine's .NET runtime,
 /// encodes the standard repo's golden datagrams byte for byte, and (2) this engine's
-/// frame conversion against hand-derived vectors (Godot RH/−Z → OGSA-TS
+/// frame conversion against hand-derived vectors (Godot RH/−Z → OGS-TS
 /// LH/+Z), and (3) that the publisher node keeps streaming with
 /// session.paused set while the scene tree is paused (CONVENTIONS C-11).
 /// Prints PASS/FAIL per check and exits non-zero on failure.
@@ -25,7 +25,7 @@ namespace Ogsa.Telemetry.Godot;
 public sealed partial class ConformanceCheck : Node
 {
     [Export] public string CorpusDir =
-        "../OGSA-Telemetry-Standard/conformance";
+        "../OGS-Telemetry-Standard/conformance";
 
     int _pass;
     int _fail;
@@ -88,7 +88,7 @@ public sealed partial class ConformanceCheck : Node
         if (dir is null)
         {
             GD.Print($"conformance: corpus not found (tried '{CorpusDir}', " +
-                $"OGSA_TS_CONFORMANCE env var, sibling of the project, and " +
+                $"OGS_TS_CONFORMANCE env var, sibling of the project, and " +
                 $"parents of the project root) — set CorpusDir in the Inspector " +
                 $"to the standard repo's conformance/ folder");
             _fail++;
@@ -105,7 +105,7 @@ public sealed partial class ConformanceCheck : Node
 
         // Encode direction: the vendored core, running on this engine's
         // .NET runtime, must reproduce every golden datagram byte for byte.
-        foreach (var vector in Ogsa.Telemetry.ConformanceVectors.All())
+        foreach (var vector in Ogs.Telemetry.ConformanceVectors.All())
         {
             if (!files.TryGetValue(vector.Id, out var file))
             {
@@ -151,7 +151,7 @@ public sealed partial class ConformanceCheck : Node
         {
             var d = rx.Receive(ref from);
             total++;
-            if (d.Length > 4 && d[4] == (byte)Ogsa.Telemetry.FrameType.Motion) motion++;
+            if (d.Length > 4 && d[4] == (byte)Ogs.Telemetry.FrameType.Motion) motion++;
         }
         Check("pause: node reports session.paused", node.Paused);
         if (total == 0)
@@ -165,13 +165,13 @@ public sealed partial class ConformanceCheck : Node
     }
 
     /// <summary>Corpus location order: explicit CorpusDir (Inspector),
-    /// OGSA_TS_CONFORMANCE env var, sibling of the game project, then
+    /// OGS_TS_CONFORMANCE env var, sibling of the game project, then
     /// walking up from the project root (covers projects nested anywhere
-    /// inside the alliance checkout).</summary>
+    /// inside the workspace checkout).</summary>
     string? FindCorpusDir()
     {
         if (Directory.Exists(CorpusDir)) return CorpusDir;
-        var env = System.Environment.GetEnvironmentVariable("OGSA_TS_CONFORMANCE");
+        var env = System.Environment.GetEnvironmentVariable("OGS_TS_CONFORMANCE");
         if (!string.IsNullOrEmpty(env) && Directory.Exists(env)) return env;
 
         string? dir = ProjectSettings.GlobalizePath("res://");
@@ -180,9 +180,9 @@ public sealed partial class ConformanceCheck : Node
             var sibling = Path.Combine(
                 Path.GetDirectoryName(dir.TrimEnd(
                     Path.DirectorySeparatorChar, Path.AltDirectorySeparatorChar)) ?? "",
-                "OGSA-Telemetry-Standard", "conformance");
+                "OGS-Telemetry-Standard", "conformance");
             if (File.Exists(Path.Combine(sibling, "manifest.json"))) return sibling;
-            var nested = Path.Combine(dir, "OGSA-Telemetry-Standard", "conformance");
+            var nested = Path.Combine(dir, "OGS-Telemetry-Standard", "conformance");
             if (File.Exists(Path.Combine(nested, "manifest.json"))) return nested;
 
             var parent = Path.GetDirectoryName(dir.TrimEnd(

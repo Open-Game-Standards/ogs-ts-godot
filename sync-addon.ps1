@@ -1,12 +1,12 @@
 # sync-addon.ps1 — mirror this addon into a Godot project's addons/ folder.
 #
-# Godot test projects consume a *copy* of addons/ogsa_telemetry, which
+# Godot test projects consume a *copy* of addons/ogs_telemetry, which
 # silently drifts behind this repo. Run this after every addon change:
 #
 #   ./sync-addon.ps1 -Project "C:\path\to\MyGodotProject"
 #
 # -Project accepts the project directory or its project.godot.
-# Mirrors addon/ogsa_telemetry exactly (stale files in the copy are
+# Mirrors addon/ogs_telemetry exactly (stale files in the copy are
 # deleted); .godot/ caches are left alone — Godot reimports on launch.
 #
 # Cross-platform: runs under Windows PowerShell 5.1 or pwsh (Linux/macOS).
@@ -68,7 +68,7 @@ function Sync-Mirror {
 }
 
 $repoDir = $PSScriptRoot
-$src = Join-Path $repoDir 'addon/ogsa_telemetry'
+$src = Join-Path $repoDir 'addon/ogs_telemetry'
 if (-not (Test-Path (Join-Path $src 'plugin.cfg'))) {
     throw "not run from the repo root: $src missing"
 }
@@ -79,7 +79,7 @@ if (-not (Test-Path (Join-Path $Project 'project.godot'))) {
     throw "no project.godot found in $Project"
 }
 
-$dst = Join-Path $Project 'addons/ogsa_telemetry'
+$dst = Join-Path $Project 'addons/ogs_telemetry'
 # exclude *.uid: Godot generates .uid sidecars in the project copy (like
 # Unity's .meta files) — preserve them so references stay stable and no
 # reimport churn

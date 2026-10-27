@@ -1,9 +1,9 @@
 #nullable enable
 using System.Collections.Generic;
-using Ogsa.Telemetry.Schema;
-using Ogsa.Telemetry.Wire;
+using Ogs.Telemetry.Schema;
+using Ogs.Telemetry.Wire;
 
-namespace Ogsa.Telemetry
+namespace Ogs.Telemetry
 {
 
 /// <summary>One conformance-corpus frame: the standard repo's

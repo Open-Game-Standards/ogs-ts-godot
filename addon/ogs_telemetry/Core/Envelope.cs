@@ -1,7 +1,7 @@
 #nullable enable
 using System;
 
-namespace Ogsa.Telemetry
+namespace Ogs.Telemetry
 {
 
 /// <summary>Frame type byte in the OMT1 envelope (see implementation-udp.md).</summary>

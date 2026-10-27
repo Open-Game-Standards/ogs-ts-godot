@@ -1,6 +1,6 @@
 #nullable enable
 using System;
-namespace Ogsa.Telemetry
+namespace Ogs.Telemetry
 {
 
 /// <summary>
