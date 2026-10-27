@@ -44,6 +44,9 @@ public static class ConformanceVectors
         new ConformanceVector("motion-multi", FrameType.Motion, MotionMulti()),
         new ConformanceVector("motion-bodydynamics", FrameType.Motion, MotionBodyDynamics()),
         new ConformanceVector("event-impact", FrameType.Event, EventImpact()),
+        new ConformanceVector("discovery-gravity-vector", FrameType.Discovery, DiscoveryGravityVector()),
+        new ConformanceVector("motion-local-gravity", FrameType.Motion, MotionLocalGravity()),
+        new ConformanceVector("motion-local-gravity-zero", FrameType.Motion, MotionLocalGravityZero()),
     };
 
     static DiscoveryFrame Discovery(ObjectDescriptor obj) => new DiscoveryFrame
@@ -124,6 +127,48 @@ public static class ConformanceVectors
         bd.SpecificForce.X = 0.25f; bd.SpecificForce.Y = 9.5f; bd.SpecificForce.Z = -1.5f;
         bd.AngularVelocity.X = -0.125f; bd.AngularVelocity.Y = 0.375f; bd.AngularVelocity.Z = 0.75f;
         return Motion(4.5, obj);
+    }
+
+    static DiscoveryFrame DiscoveryGravityVector()
+    {
+        // tilted session gravity (C-12): the scalar is its magnitude,
+        // |(3, −4, 0)| = 5
+        var d = Discovery(new ObjectDescriptor { Name = "obj", Type = ObjectType.Spacecraft, Primary = true });
+        d.Environment.Gravity = 5f;
+        d.Environment.Medium = ContactMedium.Vacuum;
+        var g = d.Environment.InitGravityVector();
+        g.X = 3f; g.Y = -4f;
+        return d;
+    }
+
+    static MotionFrame MotionLocalGravity()
+    {
+        var obj = new MotionObject
+        {
+            Name = "obj",
+            Position = { X = 12f, Y = 0.5f, Z = -4f },
+            Orientation = { W = 1 },
+        };
+        // at rest, level, under a local pull toward −x (C-12): specific
+        // force is the reaction, q⁻¹ · (a − g) = (+2, 0, 0)
+        var bd = obj.InitBodyDynamics();
+        bd.SpecificForce.X = 2f;
+        var g = obj.LocalGravity.InitVector();
+        g.X = -2f;
+        return Motion(5.25, obj);
+    }
+
+    static MotionFrame MotionLocalGravityZero()
+    {
+        // explicitly weightless: a selected all-zero vector, not "not provided"
+        var obj = new MotionObject
+        {
+            Name = "obj",
+            Position = { X = 1f, Y = 2f, Z = 3f },
+            Orientation = { W = 1 },
+        };
+        obj.LocalGravity.InitVector();
+        return Motion(6.5, obj);
     }
 
     static EventFrame EventImpact()

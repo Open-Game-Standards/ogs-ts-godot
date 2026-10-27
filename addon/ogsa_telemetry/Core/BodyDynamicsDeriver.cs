@@ -14,8 +14,11 @@ namespace Ogsa.Telemetry
 /// accelerometer-class data natively. Semantics per the schema's
 /// bodyDynamics variant (convention A, accelerometer-style):
 ///
-///   specificForce = a_world − g_world  (f = a − g; +9.80665 on +heave
-///                                       at rest — what an IMU reads),
+///   specificForce = a_world − g_world  (f = a − g; +|g| on +heave at
+///                                       rest — what an IMU reads),
+///   with g_world = <see cref="GravityVector"/> (default standard gravity
+///   along world −Y; set it to the stream's effective gravity, CONVENTIONS
+///   C-12 — TelemetryPublisher.EffectiveGravity),
 ///   expressed in the C-4 body frame by rotating with the inverse of the
 ///   reported orientation (v_world = q · v_body — Unity/Unreal actor
 ///   rotations in the standard frame).
@@ -54,8 +57,18 @@ namespace Ogsa.Telemetry
 /// </summary>
 public sealed class BodyDynamicsDeriver
 {
-    /// <summary>Standard gravity, m/s² (the value the schema's tilt-coordination consumers assume; matches TelemetryPublisher's discovery Environment.Gravity).</summary>
+    /// <summary>Standard gravity, m/s² — the default magnitude of
+    /// <see cref="GravityVector"/> and of TelemetryPublisher's discovery
+    /// Environment.Gravity.</summary>
     public const float Gravity = 9.80665f;
+
+    /// <summary>World-frame gravity the specific force reacts to (m/s²,
+    /// pointing the way gravity pulls; CONVENTIONS C-12). Set it to the
+    /// gravity the stream declares for the object — e.g. from
+    /// TelemetryPublisher.EffectiveGravity — before each
+    /// <see cref="Sample"/>; a change applies from that sample on, with no
+    /// estimator reset.</summary>
+    public Vector3 GravityVector { get; set; } = new Vector3(0f, -Gravity, 0f);
 
     /// <summary>Acceleration low-pass time constant, seconds.</summary>
     public const double AccelFilterTau = 0.1;
@@ -140,8 +153,7 @@ public sealed class BodyDynamicsDeriver
         _filteredAccel += (accel - _filteredAccel) * (float)blend;
 
         AngularVelocity = AngularVelocityFromDelta(_prevOrientation, orientation, dt);
-        SpecificForce = RotateByInverse(orientation,
-            _filteredAccel + new Vector3(0f, Gravity, 0f));
+        SpecificForce = RotateByInverse(orientation, _filteredAccel - GravityVector);
 
         _prevPosition = position;
         _prevVelocity = velocity;
@@ -153,7 +165,7 @@ public sealed class BodyDynamicsDeriver
     /// frame, zero angular velocity.</summary>
     public void Reset(Vector3 position, Quaternion orientation, double time)
     {
-        SpecificForce = RotateByInverse(orientation, new Vector3(0f, Gravity, 0f));
+        SpecificForce = RotateByInverse(orientation, -GravityVector);
         AngularVelocity = default;
         _prevPosition = position;
         _prevVelocity = default;

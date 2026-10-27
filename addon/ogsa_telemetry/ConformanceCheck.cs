@@ -135,6 +135,12 @@ public sealed partial class ConformanceCheck : Node
 
         var node = new TelemetryPublisherNode { Port = port, ObjectName = "pause_check" };
         AddChild(node);
+        // GravityFromPhysics: the project default is the session gravity (C-12)
+        var projectGravity = ProjectSettings.GetSetting("physics/3d/default_gravity_vector").AsVector3()
+            * (float)ProjectSettings.GetSetting("physics/3d/default_gravity").AsDouble();
+        Check("gravity: project default declared as session gravity",
+            node.Publisher.EnvironmentGravity == TelemetryPublisherNode.ToStandard(projectGravity),
+            $"declared {node.Publisher.EnvironmentGravity}");
         GetTree().Paused = true;
         await ToSignal(GetTree().CreateTimer(0.5, processAlways: true),
                        SceneTreeTimer.SignalName.Timeout);

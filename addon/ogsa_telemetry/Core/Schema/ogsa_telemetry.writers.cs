@@ -113,8 +113,23 @@ public enum ContactMedium : ushort
 
 public sealed class Environment : WireStruct
 {
-    public Environment() : base(3, 0)
+    public enum Variant : ushort
     {
+        NoGravityVector = 0,
+        GravityVector = 1,
+    }
+
+    public Environment() : base(3, 1)
+    {
+    }
+
+    public Variant Which => (Variant)GetBits(144, 16);
+
+    void Select(Variant v)
+    {
+        if (Which == v) return;
+        SetPointer(0, null);
+        SetBits(144, 16, (ushort)v);
     }
 
     public float AirDensity
@@ -145,6 +160,20 @@ public sealed class Environment : WireStruct
     {
         get => (ContactMedium)GetBits(128, 16);
         set { SetBits(128, 16, (ushort)value); }
+    }
+
+    public void SetNoGravityVector() => Select(Variant.NoGravityVector);
+
+    public Vector3? GravityVector => Which == Variant.GravityVector ? (Vector3?)GetPointer(0) : null;
+
+    /// <summary>Selects <c>gravityVector</c>; returns its (existing or new) payload.</summary>
+    public Vector3 InitGravityVector()
+    {
+        if (Which == Variant.GravityVector && GetPointer(0) is Vector3 existing) return existing;
+        Select(Variant.GravityVector);
+        var created = new Vector3();
+        SetPointer(0, created);
+        return created;
     }
 }
 
@@ -586,7 +615,7 @@ public sealed class MotionObject : WireStruct
         BodyDynamics = 2,
     }
 
-    public MotionObject() : base(1, 6)
+    public MotionObject() : base(1, 7)
     {
         SetPointer(0, "");
         SetPointer(1, new Vector3());
@@ -650,6 +679,44 @@ public sealed class MotionObject : WireStruct
     {
         get => (List<ChannelValue>?)GetPointer(5);
         set => SetPointer(5, value);
+    }
+
+    public LocalGravityGroup LocalGravity => new LocalGravityGroup(this);
+
+    /// <summary>Named union <c>localGravity</c>, a view over the MotionObject's storage.</summary>
+    public readonly struct LocalGravityGroup
+    {
+        public enum Variant : ushort
+        {
+            NoLocalGravity = 0,
+            Vector = 1,
+        }
+
+        readonly MotionObject _s;
+        internal LocalGravityGroup(MotionObject s) { _s = s; }
+
+        public Variant Which => (Variant)_s.GetBits(16, 16);
+
+        void Select(Variant v)
+        {
+            if (Which == v) return;
+            _s.SetPointer(6, null);
+            _s.SetBits(16, 16, (ushort)v);
+        }
+
+        public void SetNoLocalGravity() => Select(Variant.NoLocalGravity);
+
+        public Vector3? Vector => Which == Variant.Vector ? (Vector3?)_s.GetPointer(6) : null;
+
+        /// <summary>Selects <c>vector</c>; returns its (existing or new) payload.</summary>
+        public Vector3 InitVector()
+        {
+            if (Which == Variant.Vector && _s.GetPointer(6) is Vector3 existing) return existing;
+            Select(Variant.Vector);
+            var created = new Vector3();
+            _s.SetPointer(6, created);
+            return created;
+        }
     }
 }
 

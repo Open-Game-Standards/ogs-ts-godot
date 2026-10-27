@@ -110,6 +110,18 @@ rigs and haptics come to rest instead of freezing mid-move or dropping
 the session. `SceneTree.Paused` is detected automatically (`AutoDetectPause`; the node ticks from `SceneTree.ProcessFrame`, so it never processes your scene during a pause);
 games that pause another way call `SetPaused(true/false)`. Nothing to wire.
 
+## Gravity
+
+The session gravity in discovery is the project's default 3D gravity
+(`GravityFromPhysics`, on by default), converted to the OGSA-TS frame,
+and the body-dynamics derivation reacts to the same gravity, so heave at
+rest reads your project's |g| ([CONVENTIONS C-12](https://github.com/Open-Game-Standards-Alliance/OGSA-Telemetry-Standard/blob/main/CONVENTIONS.md#c-12-gravity)). For scenes where
+gravity varies by position (`Area3D` point or planet gravity), turn on
+`LocalGravityFromBody`: the auto-bound body's total gravity rides every
+motion frame as per-object local gravity. `SetGravity`,
+`SetEnvironment(Vector3 …)` and `BindLocalGravity` take Godot world-frame
+vectors.
+
 ## Wiring your game's values
 
 Declare channels once in `_Ready` (they lock at the first tick), bind

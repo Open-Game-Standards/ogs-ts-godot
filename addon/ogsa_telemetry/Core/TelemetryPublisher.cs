@@ -67,8 +67,13 @@ public sealed class TelemetryPublisher : IDisposable
 
     // discovery environment (schema: "may be re-sent on change") — defaults
     // are the standard atmosphere in the schema's SI units (pressure in Pa)
-    float _envAirDensity = 1.225f, _envTemperature = 20f, _envPressure = 101325f, _envGravity = 9.81f;
+    // and standard gravity, the value BodyDynamicsDeriver assumes by default
+    float _envAirDensity = 1.225f, _envTemperature = 20f, _envPressure = 101325f,
+          _envGravity = BodyDynamicsDeriver.Gravity;
+    Vector3? _envGravityVector; // null = along world −Y (noGravityVector)
     Schema.ContactMedium _envMedium = Schema.ContactMedium.Asphalt;
+
+    Func<Vector3>? _getLocalGravity;
 
     Func<Vector3>? _getPosition;
     Func<(Vector3 specificForce, Vector3 angularVelocityRadS)>? _getBodyDynamics;
@@ -134,25 +139,73 @@ public sealed class TelemetryPublisher : IDisposable
     /// the next tick, like <see cref="SetObjectTypeLabel"/>. Senders with
     /// per-level conditions should call it on level load: a space level
     /// would set gravity 0 and <c>ContactMedium.vacuum</c>. All values are
-    /// taken as given — no defaults are guessed on a partial update.</summary>
+    /// taken as given — no defaults are guessed on a partial update.
+    /// <paramref name="gravity"/> is the magnitude, acting along world −Y;
+    /// use the vector overload for any other direction.</summary>
     public void SetEnvironment(float gravity, float airDensity, float temperature,
                                float pressure, Schema.ContactMedium medium)
+        => ApplyEnvironment(gravity, null, airDensity, temperature, pressure, medium);
+
+    /// <summary>As the scalar overload, with gravity as a world-frame
+    /// vector (m/s², pointing the way gravity pulls; CONVENTIONS C-12).
+    /// Discovery carries it as <c>gravityVector</c> and its magnitude as
+    /// <c>gravity</c>, so receivers that read only the scalar still get the
+    /// right value. For gravity that varies by position or faster than
+    /// discovery re-sends, use <see cref="BindLocalGravity"/>.</summary>
+    public void SetEnvironment(Vector3 gravity, float airDensity, float temperature,
+                               float pressure, Schema.ContactMedium medium)
+        => ApplyEnvironment(gravity.Length(), gravity, airDensity, temperature, pressure, medium);
+
+    /// <summary>Updates only the session gravity (world frame, m/s²,
+    /// pointing the way gravity pulls), keeping the other environment
+    /// values — for engines whose physics exposes a gravity vector (Unity
+    /// Physics.gravity). Gravity straight down along −Y is declared as the
+    /// scalar alone; any other direction also as <c>gravityVector</c>.
+    /// Re-sends discovery when it changes.</summary>
+    public void SetGravity(Vector3 gravity)
     {
-        if (_envGravity == gravity && _envAirDensity == airDensity &&
-            _envTemperature == temperature && _envPressure == pressure &&
-            _envMedium == medium) return;
-        _envGravity = gravity; _envAirDensity = airDensity;
-        _envTemperature = temperature; _envPressure = pressure;
-        _envMedium = medium;
-        if (_discoveryFrame is not null)
-        {
-            var env = _discoveryFrame.Environment;
-            env.Gravity = gravity; env.AirDensity = airDensity;
-            env.Temperature = temperature; env.Pressure = pressure;
-            env.Medium = medium;
-        }
+        bool down = gravity.X == 0f && gravity.Z == 0f && gravity.Y <= 0f;
+        ApplyEnvironment(gravity.Length(), down ? null : gravity, _envAirDensity,
+                         _envTemperature, _envPressure, _envMedium);
+    }
+
+    void ApplyEnvironment(float gravity, Vector3? gravityVector, float airDensity,
+                          float temperature, float pressure, Schema.ContactMedium medium)
+    {
+        if (_envGravity == gravity && _envGravityVector == gravityVector &&
+            _envAirDensity == airDensity && _envTemperature == temperature &&
+            _envPressure == pressure && _envMedium == medium) return;
+        _envGravity = gravity; _envGravityVector = gravityVector;
+        _envAirDensity = airDensity; _envTemperature = temperature;
+        _envPressure = pressure; _envMedium = medium;
+        if (_discoveryFrame is not null) FillEnvironment(_discoveryFrame.Environment);
         _lastDiscovery = double.NegativeInfinity; // re-send at the next tick
     }
+
+    void FillEnvironment(Schema.Environment env)
+    {
+        env.Gravity = _envGravity; env.AirDensity = _envAirDensity;
+        env.Temperature = _envTemperature; env.Pressure = _envPressure;
+        env.Medium = _envMedium;
+        if (_envGravityVector is { } g)
+        {
+            var v = env.InitGravityVector();
+            v.X = g.X; v.Y = g.Y; v.Z = g.Z;
+        }
+        else env.SetNoGravityVector();
+    }
+
+    /// <summary>The session gravity declared in discovery, as a world-frame
+    /// vector (CONVENTIONS C-12).</summary>
+    public Vector3 EnvironmentGravity =>
+        _envGravityVector ?? new Vector3(0f, -_envGravity, 0f);
+
+    /// <summary>The object's effective gravity (CONVENTIONS C-12): the
+    /// bound local gravity (its getter, read now), else the environment's.
+    /// Feed it to <see cref="BodyDynamicsDeriver.GravityVector"/> so
+    /// derived specific force matches what the stream declares.</summary>
+    public Vector3 EffectiveGravity =>
+        _getLocalGravity is not null ? _getLocalGravity() : EnvironmentGravity;
 
     public ChannelHandle DeclareChannel(string name, Unit unit,
                                         string description = "",
@@ -280,6 +333,16 @@ public sealed class TelemetryPublisher : IDisposable
         Func<(Vector3 specificForce, Vector3 angularVelocityRadS)> get)
         => _getBodyDynamics = get;
 
+    /// <summary>Binds the object's local gravity (world frame, m/s²,
+    /// pointing the way gravity pulls; CONVENTIONS C-12) for gravity that
+    /// varies by position or changes faster than discovery re-sends —
+    /// planet surfaces, rotating habitats, multi-body scenes. While bound,
+    /// every motion frame carries it as <c>localGravity.vector</c>; a zero
+    /// vector is weightless. Pass null to fall back to the environment
+    /// gravity. Bound specific force must be computed against the same
+    /// gravity (see <see cref="EffectiveGravity"/>).</summary>
+    public void BindLocalGravity(Func<Vector3>? get) => _getLocalGravity = get;
+
     /// <summary>Binds a numeric channel. The getter returns values in
     /// <paramref name="sourceUnit"/> (what the game natively measures); the
     /// factor to the channel's target unit is precomputed here and applied
@@ -404,6 +467,7 @@ public sealed class TelemetryPublisher : IDisposable
         _recentEvents.Clear();
         _getPosition = null;
         _getBodyDynamics = null;
+        _getLocalGravity = null;
         _getOrientation = null;
         _discoveryFrame = null;
         _motionFrame = null;
@@ -414,16 +478,21 @@ public sealed class TelemetryPublisher : IDisposable
     // locked before the first send) and the encoder only reads. The
     // descriptor lists are referenced live rather than copied — they are
     // immutable after the lock.
-    Schema.DiscoveryFrame BuildDiscovery() => _discoveryFrame ??= new Schema.DiscoveryFrame
+    Schema.DiscoveryFrame BuildDiscovery()
+    {
+        if (_discoveryFrame is null)
+        {
+            _discoveryFrame = NewDiscovery();
+            FillEnvironment(_discoveryFrame.Environment);
+        }
+        return _discoveryFrame;
+    }
+
+    Schema.DiscoveryFrame NewDiscovery() => new Schema.DiscoveryFrame
     {
         SchemaVersion = 1,
         GameName = _gameName,
         SessionStartUnixUs = _sessionStartTicks / 10, // .NET ticks (100 ns) → µs
-        Environment =
-        {
-            AirDensity = _envAirDensity, Temperature = _envTemperature,
-            Pressure = _envPressure, Gravity = _envGravity, Medium = _envMedium,
-        },
         Objects = new List<Schema.ObjectDescriptor>
         {
             new()
@@ -477,6 +546,16 @@ public sealed class TelemetryPublisher : IDisposable
             bd.AngularVelocity.X = av.X; bd.AngularVelocity.Y = av.Y; bd.AngularVelocity.Z = av.Z;
         }
         else obj.SetNoDynamics();
+
+        // C-12: local gravity describes its own frame only, so it rides
+        // every motion frame while bound
+        if (_getLocalGravity is not null)
+        {
+            var local = _getLocalGravity();
+            var g = obj.LocalGravity.InitVector();
+            g.X = local.X; g.Y = local.Y; g.Z = local.Z;
+        }
+        else obj.LocalGravity.SetNoLocalGravity();
 
         // v1 streams all declared channels each tick; the schema permits
         // sending only changed values once senders have hundreds of channels.

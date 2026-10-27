@@ -48,8 +48,22 @@ public sealed partial class TelemetryPublisherNode : Node3D
     /// rates — the motion-cueing inputs) derived per tick from the bound
     /// body's pose and its engine-measured LinearVelocity, via the core's
     /// BodyDynamicsDeriver. Accelerometer-style convention: heave reads
-    /// +9.80665 at rest.</summary>
+    /// +|g| at rest, g being the gravity the stream declares.</summary>
     [Export] public bool SendBodyDynamics = true;
+
+    /// <summary>Declare the project's default 3D gravity
+    /// (physics/3d/default_gravity × default_gravity_vector) as the
+    /// session gravity at _Ready (standard CONVENTIONS C-12). Off: the
+    /// publisher's declared gravity (standard gravity unless set).</summary>
+    [ExportGroup("Gravity")]
+    [Export] public bool GravityFromPhysics = true;
+
+    /// <summary>Carry the auto-bound body's total gravity (Area3D
+    /// overrides included — planet and point gravity) as per-object local
+    /// gravity in every motion frame. For scenes where gravity varies by
+    /// position; leave off when the project default applies everywhere.
+    /// </summary>
+    [Export] public bool LocalGravityFromBody = false;
 
     /// <summary>Report the game as paused (session.paused) while
     /// SceneTree.Paused is set. Games that pause another way call
@@ -103,6 +117,11 @@ public sealed partial class TelemetryPublisherNode : Node3D
             Publisher.DeclareObject(ObjectName, TypeLabel);
         Publisher.DeclarePause();
 
+        if (GravityFromPhysics)
+            Publisher.SetGravity(ToStandard(
+                ProjectSettings.GetSetting("physics/3d/default_gravity_vector").AsVector3()
+                * (float)ProjectSettings.GetSetting("physics/3d/default_gravity").AsDouble()));
+
         if (AutoBindBody != null)
         {
             var body = AutoBindBody;
@@ -112,6 +131,8 @@ public sealed partial class TelemetryPublisherNode : Node3D
             if (SendBodyDynamics)
                 Publisher.BindBodyDynamics(
                     () => (_deriver.SpecificForce, _deriver.AngularVelocity));
+            if (LocalGravityFromBody)
+                Publisher.BindLocalGravity(() => BodyGravity(body));
         }
 
         // not _Process: that stops while the tree is paused (C-11)
@@ -133,6 +154,9 @@ public sealed partial class TelemetryPublisherNode : Node3D
             return;
         bool paused = _manualPaused || (AutoDetectPause && GetTree().Paused);
         if (paused != pub.Paused) pub.SetPaused(paused);
+        // derived specific force reacts to the gravity the stream declares
+        // for this object (C-12)
+        _deriver.GravityVector = pub.EffectiveGravity;
         // derivation runs every tick with a pose (not just at publish
         // cadence): engine-measured velocity, quaternion-delta rates.
         // Nothing is measured while paused (C-11); resuming starts the
@@ -196,6 +220,36 @@ public sealed partial class TelemetryPublisherNode : Node3D
     public void SetEnvironment(float gravity, float airDensity, float temperature,
                                float pressure, Ogsa.Telemetry.Schema.ContactMedium medium)
         => Publisher.SetEnvironment(gravity, airDensity, temperature, pressure, medium);
+
+    /// <summary>As above, with gravity as a Godot world-frame vector
+    /// (m/s², pointing the way gravity pulls; standard CONVENTIONS C-12).
+    /// </summary>
+    public void SetEnvironment(Vector3 gravity, float airDensity, float temperature,
+                               float pressure, Ogsa.Telemetry.Schema.ContactMedium medium)
+        => Publisher.SetEnvironment(ToStandard(gravity), airDensity, temperature, pressure, medium);
+
+    /// <summary>Updates only the session gravity (Godot world frame).
+    /// GravityFromPhysics declares the project default at _Ready.</summary>
+    public void SetGravity(Vector3 gravity) => Publisher.SetGravity(ToStandard(gravity));
+
+    /// <summary>Binds this object's local gravity (Godot world frame, m/s²,
+    /// pointing the way gravity pulls), carried in every motion frame while
+    /// bound and fed to the body-dynamics derivation; null falls back to
+    /// the session gravity. LocalGravityFromBody binds the auto-bound
+    /// body's total gravity.</summary>
+    public void BindLocalGravity(Func<Vector3>? gravity)
+        => Publisher.BindLocalGravity(
+            gravity is null ? null : () => ToStandard(gravity()));
+
+    // Area3D overrides included; a freed or space-less body reads the
+    // project default rather than a stale value
+    System.Numerics.Vector3 BodyGravity(RigidBody3D body)
+    {
+        if (GodotObject.IsInstanceValid(body) &&
+            PhysicsServer3D.BodyGetDirectState(body.GetRid()) is { } state)
+            return ToStandard(state.TotalGravity);
+        return _publisher?.EnvironmentGravity ?? default;
+    }
 
     // ---- bindings (pull model) ----
 
