@@ -10,9 +10,9 @@ Godot 4 (.NET) addon for the [OGS Telemetry Standard (OGS-TS)](https://github.co
 platforms, haptic hardware, dashboards, and loggers on the player's local
 network, over UDP multicast. Nothing leaves the LAN.
 
-Community & support: [Discord](https://discord.gg/tseF4Q6U99)
+Community & support: [Discord](https://discord.gg/tseF4Q6U99) · Development is funded by [sponsorship](https://github.com/sponsors/BrianGilbert)
 
-Status: **bootstrap, validated** — conformance 12/12 and end-to-end in Godot 4.7.2 .NET (channels=3 ratified units, circle on-wire, |q|=1). `TelemetryPublisherNode`, vendored `Ogs.Telemetry`
+Status: **validated** — conformance 12/12 and end-to-end in Godot 4.7.2 .NET (channels=3 ratified units, circle on-wire, |q|=1). `TelemetryPublisherNode`, vendored `Ogs.Telemetry`
 core (the same source tested in ogs-ts-dotnet), demo scene, and a
 conformance checker against the standard's golden corpus. Validated
 end-to-end against the reference receiver (`ogs-ts-dotnet`:
