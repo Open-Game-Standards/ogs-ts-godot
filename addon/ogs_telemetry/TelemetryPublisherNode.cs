@@ -36,6 +36,10 @@ public sealed partial class TelemetryPublisherNode : Node3D
     [Export] public string GameName = "";
     [Export] public string ObjectName = "player";
     [Export] public string TypeLabel = "";
+    /// <summary>Names this instance in receivers' session pickers when more
+    /// than one can run on a network ("Rig 2"); the host name is filled in
+    /// automatically.</summary>
+    [Export] public string InstanceLabel = "";
 
     [ExportGroup("Cadence")]
     [Export] public double MotionHz = 60.0;
@@ -115,6 +119,7 @@ public sealed partial class TelemetryPublisherNode : Node3D
 
         if (!string.IsNullOrEmpty(ObjectName))
             Publisher.DeclareObject(ObjectName, TypeLabel);
+        Publisher.SetInstance(InstanceLabel);
         Publisher.DeclarePause();
 
         if (GravityFromPhysics)
