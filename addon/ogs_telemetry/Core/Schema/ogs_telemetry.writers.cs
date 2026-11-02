@@ -179,10 +179,12 @@ public sealed class Environment : WireStruct
 
 public sealed class DiscoveryFrame : WireStruct
 {
-    public DiscoveryFrame() : base(3, 3)
+    public DiscoveryFrame() : base(3, 5)
     {
         SetPointer(0, "");
         SetPointer(1, new Environment());
+        SetPointer(3, "");
+        SetPointer(4, "");
     }
 
     public ushort SchemaVersion
@@ -228,6 +230,18 @@ public sealed class DiscoveryFrame : WireStruct
     {
         get => (ushort)GetBits(128, 16);
         set { SetBits(128, 16, value); }
+    }
+
+    public string InstanceLabel
+    {
+        get => (string)GetPointer(3)!;
+        set => SetPointer(3, value ?? "");
+    }
+
+    public string Host
+    {
+        get => (string)GetPointer(4)!;
+        set => SetPointer(4, value ?? "");
     }
 }
 
@@ -380,6 +394,20 @@ public sealed class ChannelDescriptor : WireStruct
         get => (string)GetPointer(3)!;
         set => SetPointer(3, value ?? "");
     }
+
+    public ChannelType Type
+    {
+        get => (ChannelType)GetBits(32, 16);
+        set { SetBits(32, 16, (ushort)value); }
+    }
+}
+
+public enum ChannelType : ushort
+{
+    Unspecified = 0,
+    Number = 1,
+    Boolean = 2,
+    Text = 3,
 }
 
 public sealed class SuspensionSpec : WireStruct

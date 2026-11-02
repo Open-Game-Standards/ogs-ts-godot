@@ -51,6 +51,7 @@ public static class ConformanceVectors
         new ConformanceVector("discovery-paged-p1", FrameType.Discovery, DiscoveryPaged(1)),
         new ConformanceVector("motion-parts-p0", FrameType.Motion, MotionPart(0)),
         new ConformanceVector("motion-parts-p1", FrameType.Motion, MotionPart(1)),
+        new ConformanceVector("discovery-identity", FrameType.Discovery, DiscoveryIdentity()),
     };
 
     /// <summary>Generation of the paged discovery and motion-parts vectors.</summary>
@@ -81,9 +82,12 @@ public static class ConformanceVectors
             Channels = new List<ChannelDescriptor>
             {
                 new ChannelDescriptor { Id = 0, Name = "engine.rpm", Unit = "rpm",
-                                        Description = "Engine revolutions per minute" },
-                new ChannelDescriptor { Id = 1, Name = "vehicle.speed", Unit = "m/s" },
-                new ChannelDescriptor { Id = 2, Name = "lights.headlights", Unit = "" },
+                                        Description = "Engine revolutions per minute",
+                                        Type = ChannelType.Number },
+                new ChannelDescriptor { Id = 1, Name = "vehicle.speed", Unit = "m/s",
+                                        Type = ChannelType.Number },
+                new ChannelDescriptor { Id = 2, Name = "lights.headlights", Unit = "",
+                                        Type = ChannelType.Boolean },
             },
         };
         var rpm = obj.Channels[0].InitRange();
@@ -191,7 +195,8 @@ public static class ConformanceVectors
                 TypeLabel = "conformance car", Primary = true,
                 Channels = new List<ChannelDescriptor>
                 {
-                    new ChannelDescriptor { Id = 0, Name = "engine.rpm", Unit = "rpm" },
+                    new ChannelDescriptor { Id = 0, Name = "engine.rpm", Unit = "rpm",
+                                            Type = ChannelType.Number },
                 },
             }
             : new ObjectDescriptor
@@ -199,8 +204,10 @@ public static class ConformanceVectors
                 Name = "demo_car",
                 Channels = new List<ChannelDescriptor>
                 {
-                    new ChannelDescriptor { Id = 1, Name = "session.track", Unit = "" },
-                    new ChannelDescriptor { Id = 2, Name = "vehicle.speed", Unit = "m/s" },
+                    new ChannelDescriptor { Id = 1, Name = "session.track", Unit = "",
+                                            Type = ChannelType.Text },
+                    new ChannelDescriptor { Id = 2, Name = "vehicle.speed", Unit = "m/s",
+                                            Type = ChannelType.Number },
                 },
                 Values = new List<ChannelValue> { new ChannelValue { Id = 1, Text = "Test Ring" } },
             };
@@ -233,6 +240,16 @@ public static class ConformanceVectors
         m.Part = part;
         m.PartCount = 2;
         return m;
+    }
+
+    // A sender that names its instance for session pickers and pinning
+    // (implementation-udp.md § Senders and sessions).
+    static DiscoveryFrame DiscoveryIdentity()
+    {
+        var d = Discovery(new ObjectDescriptor { Name = "obj", Type = ObjectType.Aircraft, Primary = true });
+        d.InstanceLabel = "Rig 2";
+        d.Host = "sim-pc";
+        return d;
     }
 
     static EventFrame EventImpact()
