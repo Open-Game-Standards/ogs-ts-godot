@@ -47,7 +47,14 @@ public static class ConformanceVectors
         new ConformanceVector("discovery-gravity-vector", FrameType.Discovery, DiscoveryGravityVector()),
         new ConformanceVector("motion-local-gravity", FrameType.Motion, MotionLocalGravity()),
         new ConformanceVector("motion-local-gravity-zero", FrameType.Motion, MotionLocalGravityZero()),
+        new ConformanceVector("discovery-paged-p0", FrameType.Discovery, DiscoveryPaged(0)),
+        new ConformanceVector("discovery-paged-p1", FrameType.Discovery, DiscoveryPaged(1)),
+        new ConformanceVector("motion-parts-p0", FrameType.Motion, MotionPart(0)),
+        new ConformanceVector("motion-parts-p1", FrameType.Motion, MotionPart(1)),
     };
+
+    /// <summary>Generation of the paged discovery and motion-parts vectors.</summary>
+    public const uint PagedGeneration = 3;
 
     static DiscoveryFrame Discovery(ObjectDescriptor obj) => new DiscoveryFrame
     {
@@ -169,6 +176,63 @@ public static class ConformanceVectors
         };
         obj.LocalGravity.InitVector();
         return Motion(6.5, obj);
+    }
+
+    // One descriptor set split into two pages of generation 3: page 0 carries
+    // the object's identity and its first channel; page 1 lists the object
+    // by name only, with a session text channel (and its value) and a
+    // streamed channel.
+    static DiscoveryFrame DiscoveryPaged(ushort page)
+    {
+        var obj = page == 0
+            ? new ObjectDescriptor
+            {
+                Name = "demo_car", Type = ObjectType.Vehicle,
+                TypeLabel = "conformance car", Primary = true,
+                Channels = new List<ChannelDescriptor>
+                {
+                    new ChannelDescriptor { Id = 0, Name = "engine.rpm", Unit = "rpm" },
+                },
+            }
+            : new ObjectDescriptor
+            {
+                Name = "demo_car",
+                Channels = new List<ChannelDescriptor>
+                {
+                    new ChannelDescriptor { Id = 1, Name = "session.track", Unit = "" },
+                    new ChannelDescriptor { Id = 2, Name = "vehicle.speed", Unit = "m/s" },
+                },
+                Values = new List<ChannelValue> { new ChannelValue { Id = 1, Text = "Test Ring" } },
+            };
+        var d = Discovery(obj);
+        d.Generation = PagedGeneration;
+        d.Page = page;
+        d.PageCount = 2;
+        return d;
+    }
+
+    // One tick of generation 3 in two parts: part 0 carries the pose and the
+    // first channel; part 1 lists the object by name with the second channel.
+    static MotionFrame MotionPart(ushort part)
+    {
+        var obj = part == 0
+            ? new MotionObject
+            {
+                Name = "demo_car",
+                Position = { X = 4f, Y = 0.5f, Z = -1f },
+                Orientation = { W = 1 },
+                Channels = new List<ChannelValue> { new ChannelValue { Id = 0, Number = 4100f } },
+            }
+            : new MotionObject
+            {
+                Name = "demo_car",
+                Channels = new List<ChannelValue> { new ChannelValue { Id = 2, Number = 12.5f } },
+            };
+        var m = Motion(7.75, obj);
+        m.Generation = PagedGeneration;
+        m.Part = part;
+        m.PartCount = 2;
+        return m;
     }
 
     static EventFrame EventImpact()

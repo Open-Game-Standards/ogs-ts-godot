@@ -12,11 +12,19 @@ network, over UDP multicast. Nothing leaves the LAN.
 
 Community & support: [Discord](https://discord.gg/tseF4Q6U99) · Development is funded by [sponsorship](https://github.com/sponsors/BrianGilbert)
 
-Status: **validated** — conformance 12/12 and end-to-end in Godot 4.7.2 .NET (channels=3 ratified units, circle on-wire, |q|=1). `TelemetryPublisherNode`, vendored `Ogs.Telemetry`
+Status: **validated** — conformance 23/23 and end-to-end in Godot 4.7.2 .NET (channels=3 ratified units, circle on-wire, |q|=1). `TelemetryPublisherNode`, vendored `Ogs.Telemetry`
 core (the same source tested in ogs-ts-dotnet), demo scene, and a
 conformance checker against the standard's golden corpus. Validated
 end-to-end against the reference receiver (`ogs-ts-dotnet`:
 `dotnet run --project src/TelemetryReceive`).
+
+Every datagram stays within the standard's 1,400-byte budget
+([implementation-udp.md § Datagram budget](https://github.com/Open-Game-Standards/OGS-Telemetry-Standard/blob/main/implementation-udp.md#datagram-budget)),
+however many channels you declare: the core pages a large discovery
+(every page at start and after a change, then spread across each 2-second
+re-send) and sends a tick with many channel values as back-to-back parts,
+the pose always in the first. Changing the type label at runtime starts a
+new discovery generation.
 
 **Built with AI assistance.** Significant portions of this addon
 (including the vendored core, the frame-conversion math, and the

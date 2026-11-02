@@ -37,6 +37,14 @@ public sealed class ChannelHandle
 /// monotonic clock (engine wrappers do this from their update loop);
 /// declarations lock after the first tick because receivers cache channel
 /// descriptors by id.
+///
+/// Every datagram stays within the 1,400-byte budget
+/// (implementation-udp.md § Datagram budget): a descriptor set too large
+/// for one datagram is paged (all pages at the first tick and on a change,
+/// then spread across each re-send interval), and a tick with more channel
+/// values than one datagram holds goes out as back-to-back parts with the
+/// pose in part 0. <see cref="Generation"/> increments whenever the object's
+/// identity changes.
 /// </summary>
 public sealed class TelemetryPublisher : IDisposable
 {
@@ -86,10 +94,16 @@ public sealed class TelemetryPublisher : IDisposable
     // Cached wire frames. The object graphs are structurally identical on
     // every send (declarations lock at the first tick), so they are built
     // once and refilled in place — the 60-240 Hz motion path stops
-    // allocating a frame graph per tick.
-    Schema.DiscoveryFrame? _discoveryFrame;
-    Schema.MotionFrame? _motionFrame;
+    // allocating a frame graph per tick. Discovery is cached as its pages
+    // (one unpaged frame for a set that fits a datagram); motion as its
+    // parts, which share the ChannelValue instances of _motionValues.
+    Schema.DiscoveryFrame? _discoveryFrame;      // the complete set (unpaged view)
+    List<Schema.DiscoveryFrame>? _discoveryPages;
+    List<Schema.MotionFrame>? _motionParts;
     List<Schema.ChannelValue>? _motionValues;
+    uint _generation;
+    bool _sendAllPages = true;                   // first tick, then on any change
+    int _nextPage;                               // next page of the current re-send cycle
 
     double _anchor;                 // host clock value at first tick
     double _lastDiscovery = double.NegativeInfinity;
@@ -128,9 +142,24 @@ public sealed class TelemetryPublisher : IDisposable
         if (_typeLabel == typeLabel) return;
         _typeLabel = typeLabel;
         if (_discoveryFrame is not null)
+        {
+            // object identity changed: a new generation, every page re-sent
             _discoveryFrame.Objects![0].TypeLabel = typeLabel;
-        _lastDiscovery = double.NegativeInfinity; // re-send at the next tick
+            _generation++;
+            _discoveryPages = null;
+            if (_motionParts is not null)
+                foreach (var part in _motionParts) part.Generation = _generation;
+        }
+        _sendAllPages = true;
     }
+
+    /// <summary>The descriptor-set generation discovery and motion frames
+    /// carry; increments whenever the object's identity changes.</summary>
+    public uint Generation => _generation;
+
+    /// <summary>Pages the current descriptor set occupies (1 = unpaged).
+    /// Before the first tick it is computed from the declarations so far.</summary>
+    public int DiscoveryPageCount => _locked ? BuildDiscoveryPages().Count : PaginateNow().Count;
 
     /// <summary>Declares or updates the ambient environment carried in
     /// discovery. Callable before the first tick and afterwards — the
@@ -179,7 +208,9 @@ public sealed class TelemetryPublisher : IDisposable
         _envAirDensity = airDensity; _envTemperature = temperature;
         _envPressure = pressure; _envMedium = medium;
         if (_discoveryFrame is not null) FillEnvironment(_discoveryFrame.Environment);
-        _lastDiscovery = double.NegativeInfinity; // re-send at the next tick
+        if (_discoveryPages is not null)
+            foreach (var page in _discoveryPages) FillEnvironment(page.Environment);
+        _sendAllPages = true; // every page repeats the environment
     }
 
     void FillEnvironment(Schema.Environment env)
@@ -423,15 +454,12 @@ public sealed class TelemetryPublisher : IDisposable
         _lastTick = nowSeconds;
         _locked = true;
 
-        if (nowSeconds - _lastDiscovery >= _discoveryInterval)
-        {
-            _sender.Send(FrameType.Discovery, BuildDiscovery());
-            _lastDiscovery = nowSeconds;
-        }
+        SendDiscovery(nowSeconds);
 
         if (nowSeconds - _lastMotion >= _motionInterval)
         {
-            _sender.Send(FrameType.Motion, BuildMotion(nowSeconds));
+            foreach (var part in BuildMotion(nowSeconds))
+                _sender.Send(FrameType.Motion, part);
             _lastMotion = nowSeconds;
         }
 
@@ -470,8 +498,33 @@ public sealed class TelemetryPublisher : IDisposable
         _getLocalGravity = null;
         _getOrientation = null;
         _discoveryFrame = null;
-        _motionFrame = null;
+        _discoveryPages = null;
+        _motionParts = null;
         _motionValues = null;
+    }
+
+    // Pacing (implementation-udp.md § Send cadence): all pages back-to-back
+    // at the first tick and after any change; otherwise each re-send cycle
+    // spreads the pages evenly across the discovery interval.
+    void SendDiscovery(double nowSeconds)
+    {
+        var pages = BuildDiscoveryPages();
+        if (_sendAllPages)
+        {
+            foreach (var page in pages) _sender.Send(FrameType.Discovery, page);
+            _sendAllPages = false;
+            _lastDiscovery = nowSeconds;
+            _nextPage = pages.Count;
+            return;
+        }
+        if (nowSeconds - _lastDiscovery >= _discoveryInterval)
+        {
+            _lastDiscovery = nowSeconds;
+            _nextPage = 0;
+        }
+        double spacing = _discoveryInterval / pages.Count;
+        while (_nextPage < pages.Count && nowSeconds - _lastDiscovery >= _nextPage * spacing)
+            _sender.Send(FrameType.Discovery, pages[_nextPage++]);
     }
 
     // Built once: every field is fixed per publisher (declarations are
@@ -486,6 +539,20 @@ public sealed class TelemetryPublisher : IDisposable
             FillEnvironment(_discoveryFrame.Environment);
         }
         return _discoveryFrame;
+    }
+
+    List<Schema.DiscoveryFrame> BuildDiscoveryPages() =>
+        _discoveryPages ??= PaginateNow();
+
+    List<Schema.DiscoveryFrame> PaginateNow()
+    {
+        var complete = _locked ? BuildDiscovery() : NewDiscovery();
+        return DiscoveryPager.Paginate(() =>
+        {
+            var page = NewDiscovery();
+            FillEnvironment(page.Environment);
+            return page;
+        }, complete.Objects!, _generation);
     }
 
     Schema.DiscoveryFrame NewDiscovery() => new Schema.DiscoveryFrame
@@ -509,26 +576,12 @@ public sealed class TelemetryPublisher : IDisposable
         },
     };
 
-    Schema.MotionFrame BuildMotion(double nowSeconds)
+    List<Schema.MotionFrame> BuildMotion(double nowSeconds)
     {
-        if (_motionFrame is null || _motionValues!.Count != _bindings.Count)
-        {
-            // (re)build the cached graph: one object, one value per binding;
-            // setting a value re-selects its union variant, so the cached
-            // ChannelValues encode exactly like fresh ones
-            _motionValues = new List<Schema.ChannelValue>(_bindings.Count);
-            for (int i = 0; i < _bindings.Count; i++)
-                _motionValues.Add(new Schema.ChannelValue { Id = (ushort)i });
-            _motionFrame = new Schema.MotionFrame
-            {
-                Objects = new List<Schema.MotionObject>
-                {
-                    new() { Name = _objectName, Channels = _motionValues },
-                },
-            };
-        }
+        if (_motionParts is null || _motionValues!.Count != _bindings.Count)
+            BuildMotionParts();
 
-        var obj = _motionFrame.Objects![0];
+        var obj = _motionParts![0].Objects![0];
         // an unbound pose encodes as zeros — what receivers read for an
         // absent pose anyway
         var p = _getPosition?.Invoke() ?? default;
@@ -573,8 +626,46 @@ public sealed class TelemetryPublisher : IDisposable
                     : b.Pushed);
         }
 
-        _motionFrame.Timestamp = nowSeconds - _anchor;
-        return _motionFrame;
+        foreach (var part in _motionParts) part.Timestamp = nowSeconds - _anchor;
+        return _motionParts;
+    }
+
+    // (Re)builds the cached part graphs: one value per binding, split into
+    // parts by MotionPartPlanner. Setting a value re-selects its union
+    // variant, so the cached ChannelValues encode exactly like fresh ones.
+    void BuildMotionParts()
+    {
+        _motionValues = new List<Schema.ChannelValue>(_bindings.Count);
+        for (int i = 0; i < _bindings.Count; i++)
+            _motionValues.Add(new Schema.ChannelValue { Id = (ushort)i });
+
+        // worst case for part 0: body dynamics and a local gravity vector selected
+        var probe0 = new Schema.MotionObject { Name = _objectName,
+            Channels = new List<Schema.ChannelValue> { new() { Number = 1f } } };
+        probe0.InitBodyDynamics().SpecificForce.X = 1f;
+        probe0.LocalGravity.InitVector().X = 1f;
+        var probeLater = new Schema.MotionObject { Name = _objectName,
+            Channels = new List<Schema.ChannelValue> { new() { Number = 1f } } };
+        var plan = MotionPartPlanner.Plan(_motionValues.Count,
+            new Schema.MotionFrame { Timestamp = 1, Objects = new List<Schema.MotionObject> { probe0 } },
+            new Schema.MotionFrame { Timestamp = 1, Objects = new List<Schema.MotionObject> { probeLater } });
+
+        bool parts = plan.Count > 1;
+        _motionParts = new List<Schema.MotionFrame>(plan.Count);
+        for (int p = 0; p < plan.Count; p++)
+        {
+            var (start, count) = plan[p];
+            _motionParts.Add(new Schema.MotionFrame
+            {
+                Generation = _generation,
+                Part = parts ? (ushort)p : (ushort)0,
+                PartCount = parts ? (ushort)plan.Count : (ushort)0,
+                Objects = new List<Schema.MotionObject>
+                {
+                    new() { Name = _objectName, Channels = _motionValues.GetRange(start, count) },
+                },
+            });
+        }
     }
 
     Binding GetBinding(ChannelHandle channel, bool expectBoolean)

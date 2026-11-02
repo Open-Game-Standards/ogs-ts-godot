@@ -179,7 +179,7 @@ public sealed class Environment : WireStruct
 
 public sealed class DiscoveryFrame : WireStruct
 {
-    public DiscoveryFrame() : base(2, 3)
+    public DiscoveryFrame() : base(3, 3)
     {
         SetPointer(0, "");
         SetPointer(1, new Environment());
@@ -210,6 +210,24 @@ public sealed class DiscoveryFrame : WireStruct
     {
         get => (List<ObjectDescriptor>?)GetPointer(2);
         set => SetPointer(2, value);
+    }
+
+    public uint Generation
+    {
+        get => (uint)GetBits(32, 32);
+        set { SetBits(32, 32, value); }
+    }
+
+    public ushort Page
+    {
+        get => (ushort)GetBits(16, 16);
+        set { SetBits(16, 16, value); }
+    }
+
+    public ushort PageCount
+    {
+        get => (ushort)GetBits(128, 16);
+        set { SetBits(128, 16, value); }
     }
 }
 
@@ -588,7 +606,7 @@ public sealed class GenericSpec : WireStruct
 
 public sealed class MotionFrame : WireStruct
 {
-    public MotionFrame() : base(1, 1)
+    public MotionFrame() : base(2, 1)
     {
     }
 
@@ -603,6 +621,24 @@ public sealed class MotionFrame : WireStruct
     {
         get => (List<MotionObject>?)GetPointer(0);
         set => SetPointer(0, value);
+    }
+
+    public uint Generation
+    {
+        get => (uint)GetBits(64, 32);
+        set { SetBits(64, 32, value); }
+    }
+
+    public ushort Part
+    {
+        get => (ushort)GetBits(96, 16);
+        set { SetBits(96, 16, value); }
+    }
+
+    public ushort PartCount
+    {
+        get => (ushort)GetBits(112, 16);
+        set { SetBits(112, 16, value); }
     }
 }
 
