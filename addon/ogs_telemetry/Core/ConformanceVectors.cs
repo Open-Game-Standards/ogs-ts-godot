@@ -53,23 +53,29 @@ public static class ConformanceVectors
         new ConformanceVector("motion-parts-p1", FrameType.Motion, MotionPart(1)),
         new ConformanceVector("discovery-identity", FrameType.Discovery, DiscoveryIdentity()),
         new ConformanceVector("motion-wheel", FrameType.Motion, MotionWheel()),
+        new ConformanceVector("motion-kinematics", FrameType.Motion, MotionKinematics()),
+        new ConformanceVector("discovery-drivepoints", FrameType.Discovery, DiscoveryDrivePoints()),
+        new ConformanceVector("motion-drivepoints", FrameType.Motion, MotionDrivePoints()),
+        new ConformanceVector("motion-texts", FrameType.Motion, MotionTexts()),
     };
 
     /// <summary>Generation of the paged discovery and motion-parts vectors.</summary>
     public const uint PagedGeneration = 3;
 
-    static DiscoveryFrame Discovery(ObjectDescriptor obj) => new DiscoveryFrame
+    static DiscoveryFrame Discovery(ObjectDescriptor obj)
     {
-        SchemaVersion = 1,
-        GameName = "conformance",
-        SessionStartUnixUs = SessionStartUnixUs,
-        Environment =
+        var d = new DiscoveryFrame
         {
-            AirDensity = 1.25f, Temperature = 20f, Pressure = 1f,
-            Gravity = 9.5f, Medium = ContactMedium.Asphalt,
-        },
-        Objects = new List<ObjectDescriptor> { obj },
-    };
+            SchemaVersion = 1,
+            GameName = "conformance",
+            SessionStartUnixUs = SessionStartUnixUs,
+            Environment = { Gravity = 9.5f, Medium = ContactMedium.Asphalt },
+            Objects = new List<ObjectDescriptor> { obj },
+        };
+        var air = d.Environment.Atmosphere.InitKnown();
+        air.AirDensity = 1.25f; air.Temperature = 20f; air.Pressure = 1f;
+        return d;
+    }
 
     static DiscoveryFrame DiscoveryMinimal() =>
         Discovery(new ObjectDescriptor { Name = "obj", Type = ObjectType.Vehicle, Primary = true });
@@ -248,6 +254,7 @@ public static class ConformanceVectors
     static DiscoveryFrame DiscoveryIdentity()
     {
         var d = Discovery(new ObjectDescriptor { Name = "obj", Type = ObjectType.Aircraft, Primary = true });
+        d.Environment.Atmosphere.SetNoAtmosphere(); // a game without an atmosphere model
         d.InstanceLabel = "Rig 2";
         d.Host = "sim-pc";
         return d;
@@ -265,11 +272,104 @@ public static class ConformanceVectors
         };
         var point = new DrivePoint { Id = 0 };
         var w = point.InitWheel();
-        w.Rpm = 1200f; w.Slip = 0.0625f; w.Compression = 0.03125f;
         w.Contact = ContactMedium.Asphalt;
-        var torque = w.Torque; torque.Value = 850f; // a view over w (named union)
+        // each measurement is a named union: a view over w selects its value
+        var rpm = w.Rpm; rpm.Value = 1200f;
+        var slip = w.Slip; slip.Value = 0.0625f;
+        var compression = w.Compression; compression.Value = 0.03125f;
+        var torque = w.Torque; torque.Value = 850f;
         obj.DrivePoints = new List<DrivePoint> { point };
         return Motion(8.25, obj);
+    }
+
+    // World-space kinematics instead of body dynamics (the dynamics union).
+    static MotionFrame MotionKinematics()
+    {
+        var obj = new MotionObject
+        {
+            Name = "obj",
+            Position = { X = 1f, Y = 0.5f, Z = -2f },
+            Orientation = { W = 1 },
+        };
+        var k = obj.InitKinematics();
+        k.Velocity.X = 0.5f; k.Velocity.Y = -0.25f; k.Velocity.Z = 12f;
+        k.Acceleration.X = 0.125f; k.Acceleration.Z = 2.5f;
+        return Motion(9.5, obj);
+    }
+
+    // Every drive-point descriptor variant with its spec, and a channel
+    // whose value type is left unspecified.
+    static DiscoveryFrame DiscoveryDrivePoints()
+    {
+        var wheel = new DrivePointDescriptor { Id = 0, Name = "wheel_fl", Offset = { X = -0.75f, Y = -0.25f, Z = 1.5f } };
+        var ws = wheel.InitWheel();
+        ws.Radius = 0.3125f; ws.Driven = true; ws.Steered = true;
+        var susp = ws.InitSuspension();
+        susp.Travel.Min = -0.0625; susp.Travel.Max = 0.125; susp.Stiffness = 65000f; susp.Damping = 5000f;
+        var prop = new DrivePointDescriptor { Id = 1, Name = "prop", Offset = { Z = 2f } };
+        var ps = prop.InitPropeller(); ps.Diameter = 1.875f; ps.Blades = 3;
+        var jet = new DrivePointDescriptor { Id = 2, Name = "jet", Offset = { Z = -3f } };
+        jet.SetJet();
+        var fan = new DrivePointDescriptor { Id = 3, Name = "fan", Offset = { Y = 1f } };
+        fan.InitGeneric().RatedForce = 1500f;
+        var obj = new ObjectDescriptor
+        {
+            Name = "obj", Type = ObjectType.Vehicle, Primary = true,
+            DrivePoints = new List<DrivePointDescriptor> { wheel, prop, jet, fan },
+            Channels = new List<ChannelDescriptor>
+            {
+                new ChannelDescriptor { Id = 0, Name = "mod.value", Unit = "" },
+            },
+        };
+        return Discovery(obj);
+    }
+
+    // State for each drive-point kind: a wheel measuring everything, a
+    // propeller with pitch and thrust, a jet with thrust, a generic point.
+    static MotionFrame MotionDrivePoints()
+    {
+        var obj = new MotionObject
+        {
+            Name = "obj",
+            Position = { X = 3f },
+            Orientation = { W = 1 },
+        };
+        var wheel = new DrivePoint { Id = 0 };
+        var w = wheel.InitWheel();
+        w.Contact = ContactMedium.Gravel;
+        var rpm = w.Rpm; rpm.Value = 900f;
+        var slip = w.Slip; slip.Value = 0.125f;
+        var compression = w.Compression; compression.Value = 0.0625f;
+        var steer = w.SteerAngle; steer.Value = 0.25f;
+        var load = w.LoadForce; load.Value = 4200f;
+        var damper = w.DamperVelocity; damper.Value = -0.5f;
+        var torque = w.Torque; torque.Value = 300f;
+        var brake = w.BrakePressure; brake.Value = 250000f;
+        var tyre = w.InitTyre(); tyre.Pressure = 180000f; tyre.Temperature = 85f; tyre.Wear = 0.875f;
+        var prop = new DrivePoint { Id = 1 };
+        var p = prop.InitPropeller(); p.Rpm = 2400f;
+        var pe = p.InitExtended(); pe.Pitch = 0.375f; pe.Thrust = 2000f;
+        var jet = new DrivePoint { Id = 2 };
+        var j = jet.InitJet(); j.Throttle = 0.75f; j.Thrust = 40000f;
+        var fan = new DrivePoint { Id = 3 };
+        var g = fan.InitGeneric(); g.Engaged = true;
+        var f = g.InitForce(); f.Y = 750f;
+        obj.DrivePoints = new List<DrivePoint> { wheel, prop, jet, fan };
+        return Motion(10.25, obj);
+    }
+
+    // A text channel's value in a motion frame rides the TextValue list.
+    static MotionFrame MotionTexts()
+    {
+        var obj = new MotionObject
+        {
+            Name = "demo_car",
+            Position = { X = 1f },
+            Orientation = { W = 1 },
+            Channels = new List<ChannelValue> { new ChannelValue { Id = 2, Number = 12.5f } },
+            Texts = new List<TextValue> { new TextValue { Id = 1, Text = "Pit lane" } },
+        };
+        return Motion(11.5, obj);
     }
 
     static EventFrame EventImpact()

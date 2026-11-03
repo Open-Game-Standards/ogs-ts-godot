@@ -119,17 +119,88 @@ public sealed class Environment : WireStruct
         GravityVector = 1,
     }
 
-    public Environment() : base(3, 1)
+    public Environment() : base(2, 2)
     {
     }
 
-    public Variant Which => (Variant)GetBits(144, 16);
+    public Variant Which => (Variant)GetBits(48, 16);
 
     void Select(Variant v)
     {
         if (Which == v) return;
         SetPointer(0, null);
-        SetBits(144, 16, (ushort)v);
+        SetBits(48, 16, (ushort)v);
+    }
+
+    public float Gravity
+    {
+        get => GetFloat32(0);
+        set { SetFloat32(0, value); }
+    }
+
+    public ContactMedium Medium
+    {
+        get => (ContactMedium)GetBits(32, 16);
+        set { SetBits(32, 16, (ushort)value); }
+    }
+
+    public void SetNoGravityVector() => Select(Variant.NoGravityVector);
+
+    public Vector3? GravityVector => Which == Variant.GravityVector ? (Vector3?)GetPointer(0) : null;
+
+    /// <summary>Selects <c>gravityVector</c>; returns its (existing or new) payload.</summary>
+    public Vector3 InitGravityVector()
+    {
+        if (Which == Variant.GravityVector && GetPointer(0) is Vector3 existing) return existing;
+        Select(Variant.GravityVector);
+        var created = new Vector3();
+        SetPointer(0, created);
+        return created;
+    }
+
+    public AtmosphereGroup Atmosphere => new AtmosphereGroup(this);
+
+    /// <summary>Named union <c>atmosphere</c>, a view over the Environment's storage.</summary>
+    public readonly struct AtmosphereGroup
+    {
+        public enum Variant : ushort
+        {
+            NoAtmosphere = 0,
+            Known = 1,
+        }
+
+        readonly Environment _s;
+        internal AtmosphereGroup(Environment s) { _s = s; }
+
+        public Variant Which => (Variant)_s.GetBits(64, 16);
+
+        void Select(Variant v)
+        {
+            if (Which == v) return;
+            _s.SetPointer(1, null);
+            _s.SetBits(64, 16, (ushort)v);
+        }
+
+        public void SetNoAtmosphere() => Select(Variant.NoAtmosphere);
+
+        public Atmosphere? Known => Which == Variant.Known ? (Atmosphere?)_s.GetPointer(1) : null;
+
+        /// <summary>Selects <c>known</c>; returns its (existing or new) payload.</summary>
+        public Atmosphere InitKnown()
+        {
+            if (Which == Variant.Known && _s.GetPointer(1) is Atmosphere existing) return existing;
+            Select(Variant.Known);
+            var created = new Atmosphere();
+            _s.SetPointer(1, created);
+            return created;
+        }
+    }
+}
+
+public sealed class Atmosphere : WireStruct
+{
+    public Atmosphere() : base(2, 0)
+    {
     }
 
     public float AirDensity
@@ -148,32 +219,6 @@ public sealed class Environment : WireStruct
     {
         get => GetFloat32(64);
         set { SetFloat32(64, value); }
-    }
-
-    public float Gravity
-    {
-        get => GetFloat32(96);
-        set { SetFloat32(96, value); }
-    }
-
-    public ContactMedium Medium
-    {
-        get => (ContactMedium)GetBits(128, 16);
-        set { SetBits(128, 16, (ushort)value); }
-    }
-
-    public void SetNoGravityVector() => Select(Variant.NoGravityVector);
-
-    public Vector3? GravityVector => Which == Variant.GravityVector ? (Vector3?)GetPointer(0) : null;
-
-    /// <summary>Selects <c>gravityVector</c>; returns its (existing or new) payload.</summary>
-    public Vector3 InitGravityVector()
-    {
-        if (Which == Variant.GravityVector && GetPointer(0) is Vector3 existing) return existing;
-        Select(Variant.GravityVector);
-        var created = new Vector3();
-        SetPointer(0, created);
-        return created;
     }
 }
 
@@ -946,59 +991,233 @@ public sealed class WheelState : WireStruct
 {
     public enum Variant : ushort
     {
-        Core = 0,
-        Extended = 1,
+        NoTyre = 0,
+        Tyre = 1,
     }
 
-    public WheelState() : base(4, 1)
+    public WheelState() : base(7, 1)
     {
     }
 
-    public Variant Which => (Variant)GetBits(112, 16);
+    public Variant Which => (Variant)GetBits(16, 16);
 
     void Select(Variant v)
     {
         if (Which == v) return;
         SetPointer(0, null);
-        SetBits(112, 16, (ushort)v);
-    }
-
-    public float Rpm
-    {
-        get => GetFloat32(0);
-        set { SetFloat32(0, value); }
-    }
-
-    public float Slip
-    {
-        get => GetFloat32(32);
-        set { SetFloat32(32, value); }
-    }
-
-    public float Compression
-    {
-        get => GetFloat32(64);
-        set { SetFloat32(64, value); }
+        SetBits(16, 16, (ushort)v);
     }
 
     public ContactMedium Contact
     {
-        get => (ContactMedium)GetBits(96, 16);
-        set { SetBits(96, 16, (ushort)value); }
+        get => (ContactMedium)GetBits(0, 16);
+        set { SetBits(0, 16, (ushort)value); }
     }
 
-    public void SetCore() => Select(Variant.Core);
+    public void SetNoTyre() => Select(Variant.NoTyre);
 
-    public WheelExtended? Extended => Which == Variant.Extended ? (WheelExtended?)GetPointer(0) : null;
+    public TyreState? Tyre => Which == Variant.Tyre ? (TyreState?)GetPointer(0) : null;
 
-    /// <summary>Selects <c>extended</c>; returns its (existing or new) payload.</summary>
-    public WheelExtended InitExtended()
+    /// <summary>Selects <c>tyre</c>; returns its (existing or new) payload.</summary>
+    public TyreState InitTyre()
     {
-        if (Which == Variant.Extended && GetPointer(0) is WheelExtended existing) return existing;
-        Select(Variant.Extended);
-        var created = new WheelExtended();
+        if (Which == Variant.Tyre && GetPointer(0) is TyreState existing) return existing;
+        Select(Variant.Tyre);
+        var created = new TyreState();
         SetPointer(0, created);
         return created;
+    }
+
+    public RpmGroup Rpm => new RpmGroup(this);
+
+    /// <summary>Named union <c>rpm</c>, a view over the WheelState's storage.</summary>
+    public readonly struct RpmGroup
+    {
+        public enum Variant : ushort
+        {
+            NoRpm = 0,
+            Value = 1,
+        }
+
+        readonly WheelState _s;
+        internal RpmGroup(WheelState s) { _s = s; }
+
+        public Variant Which => (Variant)_s.GetBits(32, 16);
+
+        void Select(Variant v)
+        {
+            if (Which == v) return;
+            _s.SetBits(64, 32, 0);
+            _s.SetBits(32, 16, (ushort)v);
+        }
+
+        public void SetNoRpm() => Select(Variant.NoRpm);
+
+        public float Value
+        {
+            get => Which == Variant.Value ? _s.GetFloat32(64) : default;
+            set { Select(Variant.Value); _s.SetFloat32(64, value); }
+        }
+    }
+
+    public SlipGroup Slip => new SlipGroup(this);
+
+    /// <summary>Named union <c>slip</c>, a view over the WheelState's storage.</summary>
+    public readonly struct SlipGroup
+    {
+        public enum Variant : ushort
+        {
+            NoSlip = 0,
+            Value = 1,
+        }
+
+        readonly WheelState _s;
+        internal SlipGroup(WheelState s) { _s = s; }
+
+        public Variant Which => (Variant)_s.GetBits(48, 16);
+
+        void Select(Variant v)
+        {
+            if (Which == v) return;
+            _s.SetBits(96, 32, 0);
+            _s.SetBits(48, 16, (ushort)v);
+        }
+
+        public void SetNoSlip() => Select(Variant.NoSlip);
+
+        public float Value
+        {
+            get => Which == Variant.Value ? _s.GetFloat32(96) : default;
+            set { Select(Variant.Value); _s.SetFloat32(96, value); }
+        }
+    }
+
+    public CompressionGroup Compression => new CompressionGroup(this);
+
+    /// <summary>Named union <c>compression</c>, a view over the WheelState's storage.</summary>
+    public readonly struct CompressionGroup
+    {
+        public enum Variant : ushort
+        {
+            NoCompression = 0,
+            Value = 1,
+        }
+
+        readonly WheelState _s;
+        internal CompressionGroup(WheelState s) { _s = s; }
+
+        public Variant Which => (Variant)_s.GetBits(128, 16);
+
+        void Select(Variant v)
+        {
+            if (Which == v) return;
+            _s.SetBits(160, 32, 0);
+            _s.SetBits(128, 16, (ushort)v);
+        }
+
+        public void SetNoCompression() => Select(Variant.NoCompression);
+
+        public float Value
+        {
+            get => Which == Variant.Value ? _s.GetFloat32(160) : default;
+            set { Select(Variant.Value); _s.SetFloat32(160, value); }
+        }
+    }
+
+    public SteerAngleGroup SteerAngle => new SteerAngleGroup(this);
+
+    /// <summary>Named union <c>steerAngle</c>, a view over the WheelState's storage.</summary>
+    public readonly struct SteerAngleGroup
+    {
+        public enum Variant : ushort
+        {
+            NoSteerAngle = 0,
+            Value = 1,
+        }
+
+        readonly WheelState _s;
+        internal SteerAngleGroup(WheelState s) { _s = s; }
+
+        public Variant Which => (Variant)_s.GetBits(144, 16);
+
+        void Select(Variant v)
+        {
+            if (Which == v) return;
+            _s.SetBits(192, 32, 0);
+            _s.SetBits(144, 16, (ushort)v);
+        }
+
+        public void SetNoSteerAngle() => Select(Variant.NoSteerAngle);
+
+        public float Value
+        {
+            get => Which == Variant.Value ? _s.GetFloat32(192) : default;
+            set { Select(Variant.Value); _s.SetFloat32(192, value); }
+        }
+    }
+
+    public LoadForceGroup LoadForce => new LoadForceGroup(this);
+
+    /// <summary>Named union <c>loadForce</c>, a view over the WheelState's storage.</summary>
+    public readonly struct LoadForceGroup
+    {
+        public enum Variant : ushort
+        {
+            NoLoadForce = 0,
+            Value = 1,
+        }
+
+        readonly WheelState _s;
+        internal LoadForceGroup(WheelState s) { _s = s; }
+
+        public Variant Which => (Variant)_s.GetBits(224, 16);
+
+        void Select(Variant v)
+        {
+            if (Which == v) return;
+            _s.SetBits(256, 32, 0);
+            _s.SetBits(224, 16, (ushort)v);
+        }
+
+        public void SetNoLoadForce() => Select(Variant.NoLoadForce);
+
+        public float Value
+        {
+            get => Which == Variant.Value ? _s.GetFloat32(256) : default;
+            set { Select(Variant.Value); _s.SetFloat32(256, value); }
+        }
+    }
+
+    public DamperVelocityGroup DamperVelocity => new DamperVelocityGroup(this);
+
+    /// <summary>Named union <c>damperVelocity</c>, a view over the WheelState's storage.</summary>
+    public readonly struct DamperVelocityGroup
+    {
+        public enum Variant : ushort
+        {
+            NoDamperVelocity = 0,
+            Value = 1,
+        }
+
+        readonly WheelState _s;
+        internal DamperVelocityGroup(WheelState s) { _s = s; }
+
+        public Variant Which => (Variant)_s.GetBits(240, 16);
+
+        void Select(Variant v)
+        {
+            if (Which == v) return;
+            _s.SetBits(288, 32, 0);
+            _s.SetBits(240, 16, (ushort)v);
+        }
+
+        public void SetNoDamperVelocity() => Select(Variant.NoDamperVelocity);
+
+        public float Value
+        {
+            get => Which == Variant.Value ? _s.GetFloat32(288) : default;
+            set { Select(Variant.Value); _s.SetFloat32(288, value); }
+        }
     }
 
     public TorqueGroup Torque => new TorqueGroup(this);
@@ -1015,21 +1234,21 @@ public sealed class WheelState : WireStruct
         readonly WheelState _s;
         internal TorqueGroup(WheelState s) { _s = s; }
 
-        public Variant Which => (Variant)_s.GetBits(128, 16);
+        public Variant Which => (Variant)_s.GetBits(320, 16);
 
         void Select(Variant v)
         {
             if (Which == v) return;
-            _s.SetBits(160, 32, 0);
-            _s.SetBits(128, 16, (ushort)v);
+            _s.SetBits(352, 32, 0);
+            _s.SetBits(320, 16, (ushort)v);
         }
 
         public void SetNoTorque() => Select(Variant.NoTorque);
 
         public float Value
         {
-            get => Which == Variant.Value ? _s.GetFloat32(160) : default;
-            set { Select(Variant.Value); _s.SetFloat32(160, value); }
+            get => Which == Variant.Value ? _s.GetFloat32(352) : default;
+            set { Select(Variant.Value); _s.SetFloat32(352, value); }
         }
     }
 
@@ -1047,65 +1266,47 @@ public sealed class WheelState : WireStruct
         readonly WheelState _s;
         internal BrakePressureGroup(WheelState s) { _s = s; }
 
-        public Variant Which => (Variant)_s.GetBits(144, 16);
+        public Variant Which => (Variant)_s.GetBits(336, 16);
 
         void Select(Variant v)
         {
             if (Which == v) return;
-            _s.SetBits(192, 32, 0);
-            _s.SetBits(144, 16, (ushort)v);
+            _s.SetBits(384, 32, 0);
+            _s.SetBits(336, 16, (ushort)v);
         }
 
         public void SetNoBrakePressure() => Select(Variant.NoBrakePressure);
 
         public float Value
         {
-            get => Which == Variant.Value ? _s.GetFloat32(192) : default;
-            set { Select(Variant.Value); _s.SetFloat32(192, value); }
+            get => Which == Variant.Value ? _s.GetFloat32(384) : default;
+            set { Select(Variant.Value); _s.SetFloat32(384, value); }
         }
     }
 }
 
-public sealed class WheelExtended : WireStruct
+public sealed class TyreState : WireStruct
 {
-    public WheelExtended() : base(3, 0)
+    public TyreState() : base(2, 0)
     {
     }
 
-    public float SteerAngle
+    public float Pressure
     {
         get => GetFloat32(0);
         set { SetFloat32(0, value); }
     }
 
-    public float LoadForce
+    public float Temperature
     {
         get => GetFloat32(32);
         set { SetFloat32(32, value); }
     }
 
-    public float DamperVelocity
+    public float Wear
     {
         get => GetFloat32(64);
         set { SetFloat32(64, value); }
-    }
-
-    public float TyrePressure
-    {
-        get => GetFloat32(96);
-        set { SetFloat32(96, value); }
-    }
-
-    public float TyreTemp
-    {
-        get => GetFloat32(128);
-        set { SetFloat32(128, value); }
-    }
-
-    public float TyreWear
-    {
-        get => GetFloat32(160);
-        set { SetFloat32(160, value); }
     }
 }
 

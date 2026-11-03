@@ -75,11 +75,13 @@ public sealed class TelemetryPublisher : IDisposable
     bool _locked;
     ChannelHandle? _pauseChannel;
 
-    // discovery environment (schema: "may be re-sent on change") — defaults
-    // are the standard atmosphere in the schema's SI units (pressure in Pa)
-    // and standard gravity, the value BodyDynamicsDeriver assumes by default
-    float _envAirDensity = 1.225f, _envTemperature = 20f, _envPressure = 101325f,
+    // discovery environment (schema: "may be re-sent on change") — no
+    // atmosphere until SetEnvironment declares one (game engines rarely
+    // model air), and standard gravity, the value BodyDynamicsDeriver
+    // assumes by default
+    float _envAirDensity, _envTemperature, _envPressure,
           _envGravity = BodyDynamicsDeriver.Gravity;
+    bool _envAtmosphere;
     Vector3? _envGravityVector; // null = along world −Y (noGravityVector)
     Schema.ContactMedium _envMedium = Schema.ContactMedium.Asphalt;
 
@@ -188,13 +190,15 @@ public sealed class TelemetryPublisher : IDisposable
     /// entering water"), so a changed environment re-sends discovery at
     /// the next tick, like <see cref="SetObjectTypeLabel"/>. Senders with
     /// per-level conditions should call it on level load: a space level
-    /// would set gravity 0 and <c>ContactMedium.vacuum</c>. All values are
-    /// taken as given — no defaults are guessed on a partial update.
+    /// would set gravity 0, air density 0 and <c>ContactMedium.vacuum</c>.
+    /// All values are taken as given — no defaults are guessed on a partial
+    /// update. The air values declare a known atmosphere; without a call
+    /// discovery declares none (<c>noAtmosphere</c>).
     /// <paramref name="gravity"/> is the magnitude, acting along world −Y;
     /// use the vector overload for any other direction.</summary>
     public void SetEnvironment(float gravity, float airDensity, float temperature,
                                float pressure, Schema.ContactMedium medium)
-        => ApplyEnvironment(gravity, null, airDensity, temperature, pressure, medium);
+        => ApplyEnvironment(gravity, null, true, airDensity, temperature, pressure, medium);
 
     /// <summary>As the scalar overload, with gravity as a world-frame
     /// vector (m/s², pointing the way gravity pulls; CONVENTIONS C-12).
@@ -204,7 +208,7 @@ public sealed class TelemetryPublisher : IDisposable
     /// discovery re-sends, use <see cref="BindLocalGravity"/>.</summary>
     public void SetEnvironment(Vector3 gravity, float airDensity, float temperature,
                                float pressure, Schema.ContactMedium medium)
-        => ApplyEnvironment(gravity.Length(), gravity, airDensity, temperature, pressure, medium);
+        => ApplyEnvironment(gravity.Length(), gravity, true, airDensity, temperature, pressure, medium);
 
     /// <summary>Updates only the session gravity (world frame, m/s²,
     /// pointing the way gravity pulls), keeping the other environment
@@ -215,17 +219,18 @@ public sealed class TelemetryPublisher : IDisposable
     public void SetGravity(Vector3 gravity)
     {
         bool down = gravity.X == 0f && gravity.Z == 0f && gravity.Y <= 0f;
-        ApplyEnvironment(gravity.Length(), down ? null : gravity, _envAirDensity,
-                         _envTemperature, _envPressure, _envMedium);
+        ApplyEnvironment(gravity.Length(), down ? null : gravity, _envAtmosphere,
+                         _envAirDensity, _envTemperature, _envPressure, _envMedium);
     }
 
-    void ApplyEnvironment(float gravity, Vector3? gravityVector, float airDensity,
+    void ApplyEnvironment(float gravity, Vector3? gravityVector, bool atmosphere, float airDensity,
                           float temperature, float pressure, Schema.ContactMedium medium)
     {
         if (_envGravity == gravity && _envGravityVector == gravityVector &&
+            _envAtmosphere == atmosphere &&
             _envAirDensity == airDensity && _envTemperature == temperature &&
             _envPressure == pressure && _envMedium == medium) return;
-        _envGravity = gravity; _envGravityVector = gravityVector;
+        _envGravity = gravity; _envGravityVector = gravityVector; _envAtmosphere = atmosphere;
         _envAirDensity = airDensity; _envTemperature = temperature;
         _envPressure = pressure; _envMedium = medium;
         if (_discoveryFrame is not null) FillEnvironment(_discoveryFrame.Environment);
@@ -236,9 +241,15 @@ public sealed class TelemetryPublisher : IDisposable
 
     void FillEnvironment(Schema.Environment env)
     {
-        env.Gravity = _envGravity; env.AirDensity = _envAirDensity;
-        env.Temperature = _envTemperature; env.Pressure = _envPressure;
+        env.Gravity = _envGravity;
         env.Medium = _envMedium;
+        var atmosphere = env.Atmosphere;
+        if (_envAtmosphere)
+        {
+            var air = atmosphere.InitKnown();
+            air.AirDensity = _envAirDensity; air.Temperature = _envTemperature; air.Pressure = _envPressure;
+        }
+        else atmosphere.SetNoAtmosphere();
         if (_envGravityVector is { } g)
         {
             var v = env.InitGravityVector();
