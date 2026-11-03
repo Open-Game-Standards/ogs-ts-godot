@@ -288,6 +288,12 @@ public sealed class DiscoveryFrame : WireStruct
         get => (string)GetPointer(4)!;
         set => SetPointer(4, value ?? "");
     }
+
+    public float MotionRateHz
+    {
+        get => GetFloat32(160);
+        set { SetFloat32(160, value); }
+    }
 }
 
 public sealed class ObjectDescriptor : WireStruct

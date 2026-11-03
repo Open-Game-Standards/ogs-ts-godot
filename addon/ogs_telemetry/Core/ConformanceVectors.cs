@@ -256,6 +256,7 @@ public static class ConformanceVectors
         var d = Discovery(new ObjectDescriptor { Name = "obj", Type = ObjectType.Aircraft, Primary = true });
         d.Environment.Atmosphere.SetNoAtmosphere(); // a game without an atmosphere model
         d.InstanceLabel = "Rig 2";
+        d.MotionRateHz = 60f;
         d.Host = "sim-pc";
         return d;
     }

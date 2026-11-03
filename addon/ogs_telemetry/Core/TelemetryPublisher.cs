@@ -595,6 +595,7 @@ public sealed class TelemetryPublisher : IDisposable
         SessionStartUnixUs = _sessionStartTicks / 10, // .NET ticks (100 ns) → µs
         InstanceLabel = _instanceLabel,
         Host = _host,
+        MotionRateHz = (float)(1.0 / _motionInterval),
         Objects = new List<Schema.ObjectDescriptor>
         {
             new()
