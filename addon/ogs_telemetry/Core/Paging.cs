@@ -30,7 +30,7 @@ public static class DatagramBudget
 /// identity (type, labels, primary, reference and named points, drive
 /// points) rides the first page listing it; its channels follow, spilling
 /// onto further pages that list the object by name only; its session
-/// <c>values</c>, when present, start on a page of their own so a value
+/// <c>values</c> and <c>texts</c>, when present, start on a page of their own so a value
 /// change re-sends only that page. A set that fits one datagram is a single
 /// unpaged frame (<c>pageCount</c> 0).
 /// </summary>
@@ -69,7 +69,8 @@ public static class DiscoveryPager
                             e => e.Channels!, channel, $"channel {channel.Id} of '{source.Name}'");
 
             var values = source.Values;
-            if (values is { Count: > 0 })
+            var texts = source.Texts;
+            if (values is { Count: > 0 } || texts is { Count: > 0 })
             {
                 // session values ride their own page(s): open one unless the
                 // current page holds nothing but this object's bare name entry
@@ -81,9 +82,12 @@ public static class DiscoveryPager
                     entry = Continuation(source.Name);
                     page.Objects!.Add(entry);
                 }
-                foreach (var value in values)
+                foreach (var value in values ?? new List<ChannelValue>())
                     entry = Add(newPage, pages, ref page, entry, source.Name, budget,
                                 e => e.Values!, value, $"value {value.Id} of '{source.Name}'");
+                foreach (var text in texts ?? new List<TextValue>())
+                    entry = Add(newPage, pages, ref page, entry, source.Name, budget,
+                                e => e.Texts!, text, $"text value {text.Id} of '{source.Name}'");
             }
         }
 
@@ -141,6 +145,7 @@ public static class DiscoveryPager
             DrivePoints = source.DrivePoints,
             Channels = new List<ChannelDescriptor>(),
             Values = new List<ChannelValue>(),
+            Texts = new List<TextValue>(),
         };
         entry.ReferencePoint.Name = source.ReferencePoint.Name;
         entry.ReferencePoint.Position.X = source.ReferencePoint.Position.X;
@@ -154,6 +159,7 @@ public static class DiscoveryPager
         Name = name,
         Channels = new List<ChannelDescriptor>(),
         Values = new List<ChannelValue>(),
+        Texts = new List<TextValue>(),
     };
 
     static bool IsContinuation(ObjectDescriptor entry) =>
@@ -166,6 +172,7 @@ public static class DiscoveryPager
         {
             if (o.Channels is { Count: 0 }) o.Channels = null;
             if (o.Values is { Count: 0 }) o.Values = null;
+            if (o.Texts is { Count: 0 }) o.Texts = null;
         }
     }
 }

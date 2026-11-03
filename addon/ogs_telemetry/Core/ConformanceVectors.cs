@@ -52,6 +52,7 @@ public static class ConformanceVectors
         new ConformanceVector("motion-parts-p0", FrameType.Motion, MotionPart(0)),
         new ConformanceVector("motion-parts-p1", FrameType.Motion, MotionPart(1)),
         new ConformanceVector("discovery-identity", FrameType.Discovery, DiscoveryIdentity()),
+        new ConformanceVector("motion-wheel", FrameType.Motion, MotionWheel()),
     };
 
     /// <summary>Generation of the paged discovery and motion-parts vectors.</summary>
@@ -209,7 +210,7 @@ public static class ConformanceVectors
                     new ChannelDescriptor { Id = 2, Name = "vehicle.speed", Unit = "m/s",
                                             Type = ChannelType.Number },
                 },
-                Values = new List<ChannelValue> { new ChannelValue { Id = 1, Text = "Test Ring" } },
+                Texts = new List<TextValue> { new TextValue { Id = 1, Text = "Test Ring" } },
             };
         var d = Discovery(obj);
         d.Generation = PagedGeneration;
@@ -250,6 +251,25 @@ public static class ConformanceVectors
         d.InstanceLabel = "Rig 2";
         d.Host = "sim-pc";
         return d;
+    }
+
+    // A wheel that measures drive torque but not brake pressure: the
+    // per-field optionality unions select value and stay noBrakePressure.
+    static MotionFrame MotionWheel()
+    {
+        var obj = new MotionObject
+        {
+            Name = "obj",
+            Position = { X = 2f, Y = 0.5f, Z = 1f },
+            Orientation = { W = 1 },
+        };
+        var point = new DrivePoint { Id = 0 };
+        var w = point.InitWheel();
+        w.Rpm = 1200f; w.Slip = 0.0625f; w.Compression = 0.03125f;
+        w.Contact = ContactMedium.Asphalt;
+        var torque = w.Torque; torque.Value = 850f; // a view over w (named union)
+        obj.DrivePoints = new List<DrivePoint> { point };
+        return Motion(8.25, obj);
     }
 
     static EventFrame EventImpact()
