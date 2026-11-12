@@ -36,6 +36,11 @@ public sealed partial class TelemetryPublisherNode : Node3D
     [Export] public string GameName = "";
     [Export] public string ObjectName = "player";
     [Export] public string TypeLabel = "";
+    /// <summary>What the object is. Receivers pick a cueing profile by it: a
+    /// spacecraft is not a ground vehicle.</summary>
+    [Export] public Ogs.Telemetry.Schema.ObjectType ObjectType = Ogs.Telemetry.Schema.ObjectType.Vehicle;
+    /// <summary>Name of the point the pose describes (default "origin").</summary>
+    [Export] public string ReferencePoint = "origin";
     /// <summary>Names this instance in receivers' session pickers when more
     /// than one can run on a network ("Rig 2"); the host name is filled in
     /// automatically.</summary>
@@ -118,7 +123,7 @@ public sealed partial class TelemetryPublisherNode : Node3D
         if (Engine.IsEditorHint()) return;
 
         if (!string.IsNullOrEmpty(ObjectName))
-            Publisher.DeclareObject(ObjectName, TypeLabel);
+            Publisher.DeclareObject(ObjectName, TypeLabel, ObjectType, "local", ReferencePoint);
         Publisher.SetInstance(InstanceLabel);
         Publisher.DeclarePause();
 
