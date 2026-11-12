@@ -89,8 +89,25 @@ public sealed class TelemetrySender : IDisposable
     public void Send(FrameType type, Wire.WireStruct frame) =>
         Send(Wire.CanonicalEncoder.EncodeDatagram(type, frame));
 
-    /// <summary>Sends a complete OMT1 datagram as-is.</summary>
-    public void Send(byte[] datagram) => _socket.SendTo(datagram, _endpoint);
+    /// <summary>Sends a complete OMT1 datagram as-is. Telemetry is lossy by
+    /// design, so a transient socket failure (interface down, no route) is
+    /// counted in <see cref="SendFailures"/> rather than thrown: it must not
+    /// abort the publisher part-way through a tick.</summary>
+    public void Send(byte[] datagram)
+    {
+        try { _socket.SendTo(datagram, _endpoint); }
+        catch (SocketException ex)
+        {
+            LastSendError = ex;
+            SendFailures++;
+        }
+    }
+
+    /// <summary>Datagrams that failed to send with a socket error.</summary>
+    public long SendFailures { get; private set; }
+
+    /// <summary>The most recent send's socket error, or null.</summary>
+    public SocketException? LastSendError { get; private set; }
 
     public void Dispose() => _socket.Dispose();
 

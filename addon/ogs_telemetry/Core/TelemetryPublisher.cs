@@ -70,6 +70,9 @@ public sealed class TelemetryPublisher : IDisposable
     readonly List<Schema.DrivePointDescriptor> _drivePoints = new();
     string _objectName = "player";
     string _typeLabel = "";
+    Schema.ObjectType _objectType = Schema.ObjectType.Vehicle;
+    string _location = "local";
+    string _referencePoint = "origin";
     string _instanceLabel = "";
     string _host = "";
     bool _locked;
@@ -91,7 +94,17 @@ public sealed class TelemetryPublisher : IDisposable
     Func<(Vector3 specificForce, Vector3 angularVelocityRadS)>? _getBodyDynamics;
     Func<Quaternion>? _getOrientation;
 
-    readonly Queue<(Schema.Event ev, double at)> _recentEvents = new();
+    // Events enter _pendingEvents unstamped and are stamped with the host
+    // time of the next Tick, so the replay window is measured from a tick
+    // (a slow host cannot age an event out before it was ever sent).
+    sealed class QueuedEvent
+    {
+        public Schema.Event Ev = null!;
+        public double At;
+        public bool Sent;
+    }
+    readonly List<Schema.Event> _pendingEvents = new();
+    readonly Queue<QueuedEvent> _recentEvents = new();
     readonly List<Schema.Event> _eventScratch = new(); // reused re-carrier list
     uint _nextEventId = 1;
 
@@ -113,7 +126,6 @@ public sealed class TelemetryPublisher : IDisposable
     double _lastDiscovery = double.NegativeInfinity;
     double _lastMotion = double.NegativeInfinity;
     double _lastEventSend = double.NegativeInfinity;
-    double _lastTick;
     bool _ticked;
 
     public TelemetryPublisher(TelemetrySender sender, string gameName,
@@ -148,10 +160,20 @@ public sealed class TelemetryPublisher : IDisposable
         catch (Exception) { return ""; }
     }
 
-    public void DeclareObject(string name, string typeLabel = "")
+    /// <summary>Declares the primary object. <paramref name="type"/> is the
+    /// schema object type receivers use to pick a cueing profile (a
+    /// spacecraft is not a ground vehicle); <paramref name="typeLabel"/> is
+    /// the free-text display name; <paramref name="referencePoint"/> names
+    /// the point the pose describes (default "origin").</summary>
+    public void DeclareObject(string name, string typeLabel = "",
+                              Schema.ObjectType type = Schema.ObjectType.Vehicle,
+                              string location = "local",
+                              string referencePoint = "origin")
     {
         LockCheck("DeclareObject");
         _objectName = name; _typeLabel = typeLabel;
+        _objectType = type; _location = location ?? "local";
+        _referencePoint = referencePoint ?? "origin";
     }
 
     /// <summary>Updates the object's display label after declarations
@@ -325,6 +347,7 @@ public sealed class TelemetryPublisher : IDisposable
             DeclarePause();
         }
         Paused = paused;
+        if (paused) ClearEvents(); // stimuli do not outlive the moment the sim stops
         SetChannel(_pauseChannel!, paused);
     }
 
@@ -455,12 +478,17 @@ public sealed class TelemetryPublisher : IDisposable
     }
 
     /// <summary>Queues a discrete stimulus; re-carried ~100 ms per
-    /// CONVENTIONS C-10 (replay + id dedup over the lossy transport).
+    /// CONVENTIONS C-10 (replay + id dedup over the lossy transport). The
+    /// window starts at the next <see cref="Tick(double)"/>, so an event
+    /// fired between ticks is always sent at least once; a host ticking
+    /// slower than ~20 FPS carries each event only once, with no
+    /// redundancy. Ignored while <see cref="Paused"/>.
     /// <paramref name="direction"/> points toward the stimulus source in the
     /// object's body frame; null = omnidirectional (<c>noDirection</c>).</summary>
     public void FireEvent(string name, float intensity = 1f, float duration = 0f,
                           Vector3? direction = null)
     {
+        if (Paused) return;
         var ev = new Schema.Event
         {
             Id = _nextEventId++,
@@ -473,7 +501,16 @@ public sealed class TelemetryPublisher : IDisposable
             var v = ev.InitDirection();
             v.X = d.X; v.Y = d.Y; v.Z = d.Z;
         }
-        _recentEvents.Enqueue((ev, _lastTick));
+        _pendingEvents.Add(ev);
+    }
+
+    /// <summary>Drops every queued and not-yet-sent event — for a host that
+    /// goes inactive (respawn, level change) and must not have stale
+    /// stimuli reach the receiver afterwards.</summary>
+    public void ClearEvents()
+    {
+        _pendingEvents.Clear();
+        _recentEvents.Clear();
     }
 
     // ---- cadence ----
@@ -484,31 +521,73 @@ public sealed class TelemetryPublisher : IDisposable
     public void Tick(double nowSeconds)
     {
         if (!_ticked) { _anchor = nowSeconds; _ticked = true; }
-        _lastTick = nowSeconds;
         _locked = true;
 
         SendDiscovery(nowSeconds);
 
-        if (nowSeconds - _lastMotion >= _motionInterval)
+        // Schedule by accumulation: advancing from the previous due time (not
+        // from the late send time) keeps the long-run rate exact whatever
+        // the host's frame rate. A sender more than one interval behind
+        // resyncs to now instead of bursting to catch up.
+        double due = _lastMotion + _motionInterval;
+        if (nowSeconds >= due - MotionDueTolerance)
         {
             foreach (var part in BuildMotion(nowSeconds))
                 _sender.Send(FrameType.Motion, part);
-            _lastMotion = nowSeconds;
+            _lastMotion = double.IsNegativeInfinity(_lastMotion) ||
+                          nowSeconds - due > _motionInterval ? nowSeconds : due;
         }
 
-        while (_recentEvents.Count > 0 && nowSeconds - _recentEvents.Peek().at > 0.100)
+        foreach (var ev in _pendingEvents)
+            _recentEvents.Enqueue(new QueuedEvent { Ev = ev, At = nowSeconds });
+        _pendingEvents.Clear();
+
+        // an event leaves once its window has passed AND it has been sent
+        while (_recentEvents.Count > 0 && _recentEvents.Peek().Sent &&
+               nowSeconds - _recentEvents.Peek().At > 0.100)
             _recentEvents.Dequeue();
         if (_recentEvents.Count > 0 && nowSeconds - _lastEventSend >= 0.050)
         {
             _eventScratch.Clear();
-            foreach (var (ev, _) in _recentEvents)
-                _eventScratch.Add(ev);
-            _sender.Send(FrameType.Event, new Schema.EventFrame
+            foreach (var q in _recentEvents)
             {
-                Timestamp = nowSeconds - _anchor,
-                Events = _eventScratch,
-            });
+                _eventScratch.Add(q.Ev);
+                q.Sent = true;
+            }
+            SendEvents(nowSeconds - _anchor);
             _lastEventSend = nowSeconds;
+        }
+    }
+
+    // Rounding slack for the motion gate: a host stepping at an exact
+    // multiple of the interval must not lose a frame to float error.
+    const double MotionDueTolerance = 1e-6;
+
+    // Sends _eventScratch within the datagram budget: one frame when it
+    // fits, otherwise the longest fitting prefix repeatedly (cold path).
+    void SendEvents(double timestamp)
+    {
+        var frame = new Schema.EventFrame { Timestamp = timestamp, Events = _eventScratch };
+        if (DatagramBudget.SizeOf(FrameType.Event, frame) <= DatagramBudget.Bytes)
+        {
+            _sender.Send(FrameType.Event, frame);
+            return;
+        }
+        int start = 0;
+        while (start < _eventScratch.Count)
+        {
+            int lo = 1, hi = _eventScratch.Count - start; // lo always fits
+            while (lo < hi)
+            {
+                int mid = (lo + hi + 1) / 2;
+                var probe = new Schema.EventFrame
+                { Timestamp = timestamp, Events = _eventScratch.GetRange(start, mid) };
+                if (DatagramBudget.SizeOf(FrameType.Event, probe) <= DatagramBudget.Bytes) lo = mid;
+                else hi = mid - 1;
+            }
+            _sender.Send(FrameType.Event, new Schema.EventFrame
+            { Timestamp = timestamp, Events = _eventScratch.GetRange(start, lo) });
+            start += lo;
         }
     }
 
@@ -525,7 +604,7 @@ public sealed class TelemetryPublisher : IDisposable
     public void Dispose()
     {
         _bindings.Clear();
-        _recentEvents.Clear();
+        ClearEvents();
         _getPosition = null;
         _getBodyDynamics = null;
         _getLocalGravity = null;
@@ -601,11 +680,11 @@ public sealed class TelemetryPublisher : IDisposable
             new()
             {
                 Name = _objectName,
-                Type = Schema.ObjectType.Vehicle,
+                Type = _objectType,
                 TypeLabel = _typeLabel,
                 Primary = true,
-                Location = "local",
-                ReferencePoint = { Name = "origin" },
+                Location = _location,
+                ReferencePoint = { Name = _referencePoint },
                 DrivePoints = _drivePoints,
                 Channels = _descriptors,
             },
@@ -618,11 +697,11 @@ public sealed class TelemetryPublisher : IDisposable
             BuildMotionParts();
 
         var obj = _motionParts![0].Objects![0];
-        // an unbound pose encodes as zeros — what receivers read for an
-        // absent pose anyway
+        // an unbound position encodes as the origin and an unbound
+        // orientation as identity (C-1: orientation is a unit quaternion)
         var p = _getPosition?.Invoke() ?? default;
         obj.Position.X = p.X; obj.Position.Y = p.Y; obj.Position.Z = p.Z;
-        var q = _getOrientation?.Invoke() ?? default;
+        var q = _getOrientation?.Invoke() ?? Quaternion.Identity;
         obj.Orientation.X = q.X; obj.Orientation.Y = q.Y;
         obj.Orientation.Z = q.Z; obj.Orientation.W = q.W;
         // C-11: nothing is measured while the simulation is stopped, and a

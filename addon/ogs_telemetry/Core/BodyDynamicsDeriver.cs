@@ -88,6 +88,7 @@ public sealed class BodyDynamicsDeriver
     Vector3 _filteredAccel;
     double _prevTime = double.NaN;
     bool _hasHistory;
+    bool _needsVelocitySeed; // next sample seeds _prevVelocity instead of differencing
     bool _pendingTeleport; // no-velocity path: one strike is accel onset, two is a teleport
 
 
@@ -113,6 +114,21 @@ public sealed class BodyDynamicsDeriver
 
         Vector3 displacement = position - _prevPosition;
         Vector3 velocity;
+        if (_needsVelocitySeed)
+        {
+            // the sample after a reset has no previous velocity to
+            // difference against (a zero would read as a jump from rest to
+            // v in one sample): seed it, keep the static force, and take
+            // the angular rate, which needs only orientation history
+            _needsVelocitySeed = false;
+            _prevVelocity = hasVelocity ? engineVelocity : displacement / (float)dt;
+            AngularVelocity = AngularVelocityFromDelta(_prevOrientation, orientation, dt);
+            SpecificForce = RotateByInverse(orientation, -GravityVector);
+            _prevPosition = position;
+            _prevOrientation = orientation;
+            _prevTime = time;
+            return;
+        }
         if (hasVelocity)
         {
             // engine-measured velocity is authoritative: a move it cannot
@@ -173,6 +189,7 @@ public sealed class BodyDynamicsDeriver
         _filteredAccel = default;
         _prevTime = time;
         _hasHistory = true;
+        _needsVelocitySeed = true;
         _pendingTeleport = false;
     }
 
