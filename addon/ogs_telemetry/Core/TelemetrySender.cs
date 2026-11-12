@@ -1,5 +1,6 @@
 #nullable enable
 using System;
+using System.Collections.Generic;
 using System.Net;
 using System.Net.NetworkInformation;
 using System.Net.Sockets;
@@ -16,6 +17,14 @@ public sealed class TelemetrySender : IDisposable
 {
     readonly Socket _socket;
     readonly IPEndPoint _endpoint;
+
+    // Reused for every frame so a send allocates nothing in the encoder:
+    // the words of the message, and the datagram built from them. Guarded
+    // by _sync, since a socket can be shared between threads and these
+    // cannot.
+    readonly object _sync = new();
+    readonly List<ulong> _words = new(256);
+    byte[] _buffer = new byte[1500];
 
     /// <summary>The standard's IPv6 group (implementation-udp.md § Default
     /// endpoint): link-local, for networks without IPv4. A sender uses one
@@ -85,17 +94,28 @@ public sealed class TelemetrySender : IDisposable
     }
 
     /// <summary>Encodes <paramref name="frame"/> in canonical OGS encoding
-    /// and sends it as one datagram.</summary>
-    public void Send(FrameType type, Wire.WireStruct frame) =>
-        Send(Wire.CanonicalEncoder.EncodeDatagram(type, frame));
+    /// and sends it as one datagram. The encoding reuses this sender's
+    /// buffers; the bytes sent are those of
+    /// <see cref="Wire.CanonicalEncoder.EncodeDatagram"/>.</summary>
+    public void Send(FrameType type, Wire.WireStruct frame)
+    {
+        lock (_sync)
+        {
+            Wire.CanonicalEncoder.EncodeInto(_words, frame);
+            int length = Envelope.EncodeDatagram(ref _buffer, type, _words);
+            SendBuffer(_buffer, length);
+        }
+    }
 
     /// <summary>Sends a complete OMT1 datagram as-is. Telemetry is lossy by
     /// design, so a transient socket failure (interface down, no route) is
     /// counted in <see cref="SendFailures"/> rather than thrown: it must not
     /// abort the publisher part-way through a tick.</summary>
-    public void Send(byte[] datagram)
+    public void Send(byte[] datagram) => SendBuffer(datagram, datagram.Length);
+
+    void SendBuffer(byte[] buffer, int length)
     {
-        try { _socket.SendTo(datagram, _endpoint); }
+        try { _socket.SendTo(buffer, 0, length, SocketFlags.None, _endpoint); }
         catch (SocketException ex)
         {
             LastSendError = ex;

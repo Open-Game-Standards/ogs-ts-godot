@@ -1,5 +1,6 @@
 #nullable enable
 using System;
+using System.Collections.Generic;
 
 namespace Ogs.Telemetry
 {
@@ -74,6 +75,25 @@ public static class Envelope
         buf[4] = (byte)type;
         WriteMessage(buf, HeaderSize, segment);
         return buf;
+    }
+
+    /// <summary>As <see cref="EncodeDatagram(FrameType, ulong[])"/>, into a
+    /// caller-owned buffer that is reused between frames: grown only when a
+    /// frame does not fit, never shrunk. Returns the datagram length; bytes of
+    /// <paramref name="buffer"/> past it are stale and must not be sent. Every
+    /// byte up to the length is written here, reserved header bytes
+    /// included, so nothing depends on what the buffer held before.</summary>
+    public static int EncodeDatagram(ref byte[] buffer, FrameType type, List<ulong> segment)
+    {
+        int length = HeaderSize + (1 + segment.Count) * 8;
+        if (buffer.Length < length) buffer = new byte[Math.Max(length, buffer.Length * 2)];
+        Magic.AsSpan().CopyTo(buffer);
+        buffer[4] = (byte)type;
+        buffer[5] = buffer[6] = buffer[7] = 0; // reserved: send 0
+        WriteWord(buffer, HeaderSize, (ulong)(uint)segment.Count << 32);
+        for (int i = 0; i < segment.Count; i++)
+            WriteWord(buffer, HeaderSize + 8 * (1 + i), segment[i]);
+        return length;
     }
 
     static void WriteMessage(byte[] buf, int offset, ulong[] segment)

@@ -84,9 +84,19 @@ public static class CanonicalEncoder
     /// <summary>The message's segment words (no segment table).</summary>
     public static ulong[] Encode(WireStruct root)
     {
-        var words = new List<ulong>(64) { 0 };
-        WriteStruct(words, root, 0);
+        var words = new List<ulong>(64);
+        EncodeInto(words, root);
         return words.ToArray();
+    }
+
+    /// <summary>Encodes into a caller-owned list, cleared first, so a sender
+    /// can reuse one list for every frame. The words are exactly those of
+    /// <see cref="Encode"/>; nothing depends on the list's previous contents.</summary>
+    public static void EncodeInto(List<ulong> words, WireStruct root)
+    {
+        words.Clear();
+        words.Add(0);
+        WriteStruct(words, root, 0);
     }
 
     /// <summary>A complete OMT1 datagram: envelope, one-segment table, words.</summary>
@@ -137,13 +147,19 @@ public static class CanonicalEncoder
             WritePointer(words, s.Pointers[i], start + dw + i);
     }
 
+    [ThreadStatic] static byte[]? t_utf8;
+
     static void WriteText(List<ulong> words, string text, int at)
     {
-        byte[] bytes = Encoding.UTF8.GetBytes(text);
-        int count = bytes.Length + 1; // NUL terminator
+        // UTF-8 into a per-thread scratch buffer: no array per string
+        int max = Encoding.UTF8.GetMaxByteCount(text.Length);
+        byte[]? bytes = t_utf8;
+        if (bytes is null || bytes.Length < max) t_utf8 = bytes = new byte[Math.Max(max, 256)];
+        int length = Encoding.UTF8.GetBytes(text, 0, text.Length, bytes, 0);
+        int count = length + 1; // NUL terminator
         int start = words.Count;
         for (int i = 0; i < (count + 7) / 8; i++) words.Add(0);
-        for (int i = 0; i < bytes.Length; i++)
+        for (int i = 0; i < length; i++)
             words[start + i / 8] |= (ulong)bytes[i] << (8 * (i % 8));
         words[at] = ListPointer(start - at - 1, 2, count);
     }
